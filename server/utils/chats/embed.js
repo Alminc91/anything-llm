@@ -26,7 +26,10 @@ const {
   DISCLAIMER_PROMPT_NOTE,
   FOLLOW_UPS_PROMPT_NOTE,
 } = require("./embedCourseSources");
-const { EMBED_FIXED_STANDARDS } = require("./embedStandards");
+const {
+  EMBED_FIXED_STANDARDS,
+  EMBED_MESSAGE_LIMIT_DEFAULT,
+} = require("./embedStandards");
 const {
   courseCardsPromptNote,
   removeCourseCardsSections,
@@ -42,6 +45,11 @@ const {
   buildChainedContext,
   createOverviewLinkGuard,
 } = require("./embedCategoryChains");
+const {
+  isWordlessMessage,
+  wordlessResponseLanguage,
+  responseLanguageNote,
+} = require("./wordlessMessage");
 
 async function streamChatWithForEmbed(
   response,
@@ -99,7 +107,9 @@ async function streamChatWithForEmbed(
   });
   const VectorDb = getVectorDbClass();
 
-  const messageLimit = embed.message_limit ?? 20;
+  // Nachrichtenverlauf für das Modell: NULL = Standard 2
+  // (widget-grenzen-kontakt, AK-3; bis 8.1: 20)
+  const messageLimit = embed.message_limit ?? EMBED_MESSAGE_LIMIT_DEFAULT;
   const hasVectorizedSpace = await VectorDb.hasNamespace(embed.workspace.slug);
   const embeddingsCount = await VectorDb.namespaceCount(embed.workspace.slug);
 
@@ -291,12 +301,31 @@ async function streamChatWithForEmbed(
     return;
   }
 
+  // Nachricht ohne Wörter: Sprachhinweis an der Nutzernachricht der
+  // Modellanfrage (sprache-nur-nummer D5, Begründung im Kopf von
+  // wordlessMessage.js). Sprachwahl, Hinweis und Log erst hier, nach der
+  // Abweisung im Abfragemodus, damit das Log nur Anfragen an das Modell
+  // zählt (S-L1); den Verlauf liest die Sprachwahl nur bei einer Nachricht
+  // ohne Wörter.
+  let userPrompt = message;
+  if (isWordlessMessage(message)) {
+    const responseLanguage = wordlessResponseLanguage(
+      message,
+      rawHistory.map((chat) => chat?.prompt)
+    );
+    // Nur Workspace und Hinweis, nie die Nachricht
+    console.log(
+      `[embedLanguage] ${embed.workspace.slug}: Nachricht ohne Wörter, Sprachhinweis ${responseLanguage}`
+    );
+    userPrompt = message + responseLanguageNote(responseLanguage);
+  }
+
   // Compress message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,
-      userPrompt: message,
+      userPrompt,
       contextTexts,
       chatHistory,
     },
@@ -530,6 +559,8 @@ async function streamChatWithForEmbed(
  *     KI-Hinweis-Zeile, weil der KI-Hinweis fest im Widget steht),
  *  2. Disclaimer-Hinweis (KI-Hinweis fest unter der Eingabe),
  *  3. Folgefragen-Hinweis.
+ * Der Sprachhinweis bei einer Nachricht ohne Wörter steht nicht hier (D5,
+ * Begründung im Kopf von wordlessMessage.js).
  * Hinweis 2 und 3 und der Stil sind feste Standards des vereinfachten
  * Design Centers (embedStandards.js EMBED_FIXED_STANDARDS) und hängen immer
  * an; variabel ist nur, ob Karten an sind (cardsOn, gespeicherte Wahl
@@ -574,7 +605,7 @@ function embedSystemPrompt(basePrompt, { cardsOn }) {
 async function recentEmbedChatHistory(
   conversationId,
   embed,
-  messageLimit = 20,
+  messageLimit = EMBED_MESSAGE_LIMIT_DEFAULT,
   boundSessionId = null
 ) {
   const rawHistory = (

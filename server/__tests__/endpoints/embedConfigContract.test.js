@@ -543,6 +543,54 @@ describe("Vertrag /config: courseCount (KIE-576 Paket 3)", () => {
   });
 });
 
+// widget-grenzen-kontakt (issues/widget-grenzen-kontakt.md), AK-16 und
+// Vertrag 6 (fixtures/embedLimitContract.json, supportEmail): Die E-Mail für
+// Besucher kommt nur aus visual_config (Design Center); der Server liefert
+// keinen Standard, auch nicht im Fehlerfall.
+describe("Vertrag /config: supportEmail nur gespeichert, kein Standard des Servers (AK-16)", () => {
+  const LIMIT_CONTRACT = require("../utils/chats/fixtures/embedLimitContract.json");
+  const { applyEmbedStandards } = require("../../utils/chats/embedStandards");
+
+  test("Fixture: Quelle visual_config, kein Standard des Servers, Standard des Widgets leer", () => {
+    expect(LIMIT_CONTRACT.supportEmail).toEqual({
+      source: "visual_config.supportEmail über GET /api/embed/:uuid/config",
+      serverDefault: null,
+      widgetDefault: "",
+    });
+  });
+
+  test.each([undefined, "de", "en"])(
+    "ohne gespeicherte Adresse (Sprache %s): kein Schlüssel supportEmail",
+    async (language) => {
+      for (const visualConfig of [
+        {},
+        { supportEmail: "" },
+        { supportEmail: null },
+        { name: "Kursberater" },
+      ]) {
+        const { status, body } = await widgetFetch(visualConfig, language);
+        expect(status).toBe(200);
+        expect(body).not.toHaveProperty("supportEmail");
+        expect(JSON.stringify(body)).not.toMatch(/kufer\.de/i);
+      }
+    }
+  );
+
+  test("gespeicherte Adresse geht unverändert mit", async () => {
+    const { body } = await widgetFetch(
+      { supportEmail: "info@vhs-beispiel.de" },
+      "de"
+    );
+    expect(body.supportEmail).toBe("info@vhs-beispiel.de");
+  });
+
+  test("Antwort im Fehlerfall (feste Standards ohne gespeicherte Werte): ohne supportEmail", () => {
+    const fallback = applyEmbedStandards({}, {});
+    expect(fallback).not.toHaveProperty("supportEmail");
+    expect(JSON.stringify(fallback)).not.toMatch(/kufer\.de/i);
+  });
+});
+
 // Gegenprobe gegen das Widget-Repo (wie embedDefaults.test.js mit
 // KUFER_EMBED_DIR): Die Kopie der Fixture im Widget ist wortgleich, und der
 // Abruf von /config im Widget schickt die Sprache als ?language= mit.

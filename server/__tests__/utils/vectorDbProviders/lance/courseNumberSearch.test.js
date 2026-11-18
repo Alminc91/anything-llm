@@ -538,16 +538,23 @@ describe.each(MODES)("Modus %s", (mode) => {
       expect(docs.map((d) => d.id)).not.toContain(stale);
   });
 
-  test("NAK-3: Metadatenfilter gilt auch für den Kurs mit der Nummer", async () => {
-    // Preis bis 50: der Kurs 26B7602 (130,90) fällt heraus, DUP4711 (50) bleibt
+  // Entscheidung 16.11.2026 (Mainz, „Ist im Kurs XI66151 noch was frei?“):
+  // Metadatenfilter gelten nicht mehr für den Kurs mit der genannten Nummer,
+  // nur noch für die übrigen Plätze (vorher NAK-3 mit Metadatenfilter)
+  test("Metadatenfilter gilt nicht für den Kurs mit der Nummer, nur für die übrigen Plätze", async () => {
+    // Preis bis 50: der Kurs 26B7602 (130,90) bleibt vorn, DUP4711 (50) dahinter
     const filters = { priceMax: 50 };
     const result = await search(mode, "Kurse 26B7602 und DUP4711?", {
       filters,
     });
-    expect(ids(result)).not.toContain(courseId("26B7602"));
-    expect(ids(result).slice(0, 2).sort()).toEqual(["dup-alt", "dup-neu"]);
+    expect(ids(result)[0]).toBe(courseId("26B7602"));
+    expect(ids(result).slice(1, 3).sort()).toEqual(["dup-alt", "dup-neu"]);
+    for (const source of result.sources.slice(1))
+      expect(source.price).toBeLessThanOrEqual(50);
     expect(result.contextTexts.join("\n")).not.toContain("Hinweis an den");
+    // nur der Suchmodus trägt die Bedingung, die Kursnummernsuche keine
     const predicates = whereSpy.mock.calls.map(([p]) => p);
+    expect(predicates.length).toBeGreaterThan(0);
     for (const p of predicates) expect(p).toBe("price <= 50");
   });
 
@@ -1042,6 +1049,392 @@ describe("Nachtrag 8.1.3: Kursnummern mit Punkt", () => {
           expect(ids(result)[0]).toBe(courseId("BA56.25"));
       }
       expect(whereSpy).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// Mainz 16.11.2026 („Ist im Kurs XI66151 noch was frei?“ setzt bookable =
+// true, der Kurs auf der Warteliste fiel auch aus der Kursnummernsuche): Eine
+// genannte Kursnummer findet ihren Kurs unabhängig von Metadatenfiltern
+// (buchbar, Datum, Tageszeit, Wochentag, Ort, Preis, Format). Die übrigen
+// Plätze bleiben gefiltert, Ausschluss des Kursbestands und angeheftete
+// Dokumente gelten weiter, die Lockerung der Filter bei leerem Ergebnis
+// entscheidet wie vorher. Eigene Tabelle mit allen Metadatenspalten.
+const NS_FILTER = "kursnummern_filter";
+const PUBLISHED = "16.11.2026, 08:00:00";
+const WAITLIST = "XI66151";
+const MAINZ_QUESTIONS = [
+  `Ich habe im Programmheft die Nummer ${WAITLIST} gesehen, ist da noch was frei?`,
+  `Ist im Kurs ${WAITLIST} noch was frei?`,
+];
+// Methode des Suchmodus, die performSimilaritySearch je Suchlauf aufruft
+const MODE_METHOD = {
+  default: "similarityResponse",
+  rerank: "rerankedSimilarityResponse",
+  hybrid: "hybridSimilarityResponse",
+  hybrid_rerank: "hybridRerankedSimilarityResponse",
+};
+const courseMeta = ({
+  start,
+  minutes = 18 * 60,
+  weekdays = ",sat,",
+  price = 120,
+  bookable = true,
+  format = "onsite",
+  location = "mainz",
+}) => ({
+  start_date: start,
+  start_minutes: minutes,
+  weekdays,
+  price,
+  bookable,
+  format,
+  location,
+  published: PUBLISHED,
+});
+const waitlistHeader = (knr, title) =>
+  header(knr, title).replace(
+    "Kursstatus: Anmeldung möglich",
+    "Kursstatus: Warteliste"
+  );
+const FILTER_ROWS = [
+  // Warteliste, Sa. 21.11.2026 18:00, 120 €, vor Ort in Mainz
+  {
+    id: courseId(WAITLIST),
+    title: `Kurs ${WAITLIST}`,
+    text: waitlistHeader(WAITLIST, "Drehen auf der Töpferscheibe"),
+    vector: far(0),
+    ...courseMeta({ start: "2026-11-21", bookable: false }),
+  },
+  {
+    id: courseId("XI66152"),
+    title: "Kurs XI66152",
+    text: header("XI66152", "Aquarell am Morgen", { price: "60,00" }),
+    vector: far(1),
+    ...courseMeta({
+      start: "2027-02-01",
+      minutes: 9 * 60,
+      weekdays: ",mon,",
+      price: 60,
+    }),
+  },
+  // veraltet laut Kursbestand (je Test ausgeschlossen)
+  {
+    id: courseId("XI77001"),
+    title: "Kurs XI77001",
+    text: waitlistHeader("XI77001", "Raku-Brand"),
+    vector: far(2),
+    ...courseMeta({ start: "2026-11-28", bookable: false }),
+  },
+  // nahe am Suchvektor, ohne Kursnummer in der Kopfzeile: zuerst Warteliste,
+  // dann freie Plätze; jede Filterart lässt einige durch
+  ...Array.from({ length: 10 }, (_, i) => {
+    const waitlist = i < 4;
+    const name = `${waitlist ? "warte" : "frei"}-${i}`;
+    return {
+      id: name,
+      title: `${name}.html`,
+      text: `Töpfern und Keramik ${i}: Ist da noch was frei? Programmheft Nummer gesehen. ${waitlist ? "Nur noch Warteliste." : "Noch Plätze frei."} ${"Kurs Töpfern ".repeat(1 + (i % 3))}`,
+      vector: near(i),
+      ...courseMeta({
+        start: i % 2 === 0 ? `2026-12-${10 + i}` : `2027-01-${10 + i}`,
+        minutes: i % 3 === 0 ? 9 * 60 : 18 * 60,
+        weekdays: i % 2 === 0 ? ",sat," : ",mon,",
+        price: 40 + i,
+        bookable: !waitlist,
+        format: i % 2 === 0 ? "onsite" : "online",
+        location: i % 2 === 0 ? "mainz" : "wiesbaden",
+      }),
+    };
+  }),
+];
+const EMPTY_RESULT = { contextTexts: [], sourceDocuments: [], scores: [] };
+const RELAX_TIME = "Für den angefragten Zeitraum wurden KEINE";
+const RELAX_ALL = "Für die angefragten Kriterien";
+
+describe("Metadatenfilter und genannte Kursnummer (Mainz 16.11.2026)", () => {
+  beforeAll(async () => {
+    const { client } = await lance.connect();
+    await client.dropTable(NS_FILTER).catch(() => {});
+    await lance.updateOrCreateCollection(client, FILTER_ROWS, NS_FILTER);
+  }, 120000);
+
+  const searchF = (mode, input, extra = {}) =>
+    search(mode, input, { namespace: NS_FILTER, ...extra });
+  // dieselbe Frage ohne Kursnummernsuche (auch ohne Prüfung bei Lockerung)
+  const withoutLookup = async (mode, input, extra = {}) => {
+    const spy = jest.spyOn(lance, "courseNumberLookup").mockResolvedValue([]);
+    try {
+      return await searchF(mode, input, extra);
+    } finally {
+      spy.mockRestore();
+    }
+  };
+  // Suchspur je Anfrage (Stufe „on“)
+  const traced = async (run) => {
+    settings = { ...settings, search_trace: "on" };
+    const traces = [];
+    const spy = jest
+      .spyOn(SearchTrace, "writeTrace")
+      .mockImplementation((t) => traces.push(JSON.parse(JSON.stringify(t))));
+    try {
+      const result = await run();
+      return { result, trace: traces[0] };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+  // Suchmodus ohne Treffer, sobald eine Bedingung gesetzt ist (leeres
+  // Ergebnis mit Filter, wie bei engen Filtern live)
+  const emptyWhenFiltered = (mode) => {
+    const method = MODE_METHOD[mode];
+    const original = lance[method].bind(lance);
+    return jest
+      .spyOn(lance, method)
+      .mockImplementation(async (args) =>
+        args.whereClause ? EMPTY_RESULT : original(args)
+      );
+  };
+  const hasNote = (result, text) =>
+    result.contextTexts[0].startsWith("[Hinweis an den Assistenten") &&
+    result.contextTexts[0].includes(text);
+
+  describe.each(MODES)("Modus %s", (mode) => {
+    test("bookable = true: Kurs auf der Warteliste steht vorn, die übrigen Plätze bleiben gefiltert", async () => {
+      const alone = await searchF(mode, WAITLIST);
+      expect(ids(alone)[0]).toBe(courseId(WAITLIST));
+      const filters = { bookable: true };
+      for (const question of MAINZ_QUESTIONS) {
+        const result = await searchF(mode, question, { filters });
+        const before = await withoutLookup(mode, question, { filters });
+        expect([question, ids(result)[0]]).toEqual([
+          question,
+          courseId(WAITLIST),
+        ]);
+        expect(result.sources[0]).toMatchObject({ bookable: false });
+        expect(result.contextTexts[0]).toContain("Kursstatus: Warteliste");
+        expect(result.contextTexts.join("\n")).not.toContain("Hinweis an den");
+        // übrige Plätze: gefilterte Suche wie ohne Kursnummer
+        expect(ids(before)).not.toContain(courseId(WAITLIST));
+        expect(ids(result).slice(1)).toEqual(ids(before).slice(0, 3));
+        for (const source of result.sources.slice(1))
+          expect(source.bookable).toBe(true);
+      }
+    });
+
+    test("Datum, Tageszeit, Wochentag, Ort, Preis, Format schließen den Kurs aus: er steht trotzdem vorn", async () => {
+      const question = MAINZ_QUESTIONS[0];
+      for (const filters of [
+        { dateFrom: "2027-01-01" },
+        { dateFrom: "2026-12-01", dateTo: "2026-12-31" },
+        { timeOfDay: ["morning"] },
+        { weekdays: ["mon"] },
+        { location: ["wiesbaden"] },
+        { priceMax: 100 },
+        { format: ["online"] },
+        { bookable: true, dateFrom: "2027-01-01", priceMax: 100 },
+      ]) {
+        const result = await searchF(mode, question, { filters });
+        const before = await withoutLookup(mode, question, { filters });
+        const label = JSON.stringify(filters);
+        expect([label, ids(result)[0]]).toEqual([label, courseId(WAITLIST)]);
+        expect([label, ids(before).includes(courseId(WAITLIST))]).toEqual([
+          label,
+          false,
+        ]);
+        expect([label, ids(result).slice(1)]).toEqual([
+          label,
+          ids(before).slice(0, 3),
+        ]);
+        // Lockerung wie ohne Kursnummer: gleicher Hinweis oder keiner
+        const note = (r) =>
+          r.contextTexts[0].startsWith("[Hinweis an den")
+            ? r.contextTexts[0]
+            : null;
+        expect([label, note(result)]).toEqual([label, note(before)]);
+      }
+    });
+
+    test("ohne Kursnummer: Kurse auf der Warteliste bleiben bei bookable = true draußen (Bestand)", async () => {
+      const question = "Welche Töpferkurse haben noch freie Plätze?";
+      const lookup = jest.spyOn(lance, "courseNumberLookup");
+      const filtered = await searchF(mode, question, {
+        filters: { bookable: true },
+      });
+      const open = await searchF(mode, question);
+      expect(lookup).not.toHaveBeenCalled();
+      lookup.mockRestore();
+      expect(filtered.sources.length).toBeGreaterThan(0);
+      for (const source of filtered.sources) expect(source.bookable).toBe(true);
+      expect(open.sources.some((s) => s.bookable === false)).toBe(true);
+    });
+
+    test("Kursbestand-Ausschluss gilt mit Filter weiter für den Kurs mit der Nummer", async () => {
+      const stale = courseId("XI77001");
+      mockExclusion.mockImplementation(async () => ({
+        clauses: [`id NOT IN ('${stale}')`, `(id NOT IN ('${stale}'))`],
+        form: { accepted: 0 },
+        excludedIds: 1,
+        staleDocs: 1,
+        headBlockIds: 0,
+        stats: { failClosed: 0 },
+      }));
+      const question = "Ist im Kurs XI77001 noch was frei?";
+      for (const filters of [{ bookable: true }, { bookable: false }]) {
+        const result = await searchF(mode, question, { filters });
+        const before = await withoutLookup(mode, question, { filters });
+        expect(ids(result)).not.toContain(stale);
+        expect(ids(result)).toEqual(ids(before));
+        for (const text of result.contextTexts)
+          expect(text).not.toContain("Kursnummer: XI77001");
+      }
+      for (const [, docs] of mockRerank.mock.calls)
+        expect(docs.map((d) => d.id)).not.toContain(stale);
+    });
+
+    test("angeheftetes Dokument kommt mit Filter über die Nummer nicht in die Quellen", async () => {
+      const result = await searchF(mode, MAINZ_QUESTIONS[1], {
+        filters: { bookable: true },
+        filterIdentifiers: [`title:Kurs ${WAITLIST}-timestamp:${PUBLISHED}`],
+      });
+      expect(ids(result)).not.toContain(courseId(WAITLIST));
+      expect(result.sources).toHaveLength(4);
+    });
+
+    test("unbekannte Kursnummer mit Filter: keine Zusatzzeile, Ergebnis wie ohne Nachschlagen", async () => {
+      const question = "Ist im Kurs XI99999 noch was frei?";
+      const filters = { bookable: true };
+      const { result, trace } = await traced(() =>
+        searchF(mode, question, { filters })
+      );
+      const before = await withoutLookup(mode, question, { filters });
+      expect(result.sources).toEqual(before.sources);
+      expect(result.contextTexts).toEqual(before.contextTexts);
+      expect(trace.courseNumbers).toMatchObject({
+        candidates: 1,
+        recognized: [],
+        found: [],
+      });
+    });
+
+    test("Suchspur: Bedingung des Suchmodus, Kurs aus der Kursnummernsuche ohne Filter", async () => {
+      const { trace } = await traced(() =>
+        searchF(mode, MAINZ_QUESTIONS[1], { filters: { bookable: true } })
+      );
+      expect(trace).toMatchObject({
+        relaxStage: 0,
+        relaxed: false,
+        whereClause: "bookable = true",
+      });
+      expect(trace.courseNumbers).toMatchObject({
+        recognized: [WAITLIST],
+        found: [{ id: courseId(WAITLIST), courseNumber: WAITLIST }],
+      });
+      expect(trace.final.docs[0]).toMatchObject({
+        finalRank: 1,
+        id: courseId(WAITLIST),
+        courseNumber: WAITLIST,
+      });
+    });
+
+    test("Kursnummernsuche einmal je Anfrage ohne Bedingung, mit Bedingung nur zur Entscheidung über die Lockerung", async () => {
+      const original = lance.courseNumberLookup.bind(lance);
+      const calls = [];
+      const spy = jest
+        .spyOn(lance, "courseNumberLookup")
+        .mockImplementation(async (args) => {
+          calls.push(args.whereClause ?? null);
+          return original(args);
+        });
+      try {
+        // Suchmodus mit Treffern: keine Prüfung
+        await searchF(mode, MAINZ_QUESTIONS[1], {
+          filters: { bookable: true },
+        });
+        expect(calls).toEqual([null]);
+        // Suchmodus leer: Prüfung mit der Bedingung jeder Stufe, die gefiltert
+        // sucht; Stufe 2 sucht ohne Bedingung
+        calls.length = 0;
+        const stub = emptyWhenFiltered(mode);
+        await searchF(mode, MAINZ_QUESTIONS[1], {
+          filters: { bookable: true, dateFrom: "2027-01-01" },
+        });
+        stub.mockRestore();
+        expect(calls).toEqual([
+          null,
+          "start_date >= '2027-01-01' AND bookable = true",
+          "bookable = true",
+        ]);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    // Die drei Fälle unten verhalten sich wie vorher (gegen origin/master
+    // 7c0861dc8 geprüft): Die Lockerung zählt einen Kurs mit der Nummer nur,
+    // wenn er die Bedingung der Stufe erfüllt
+    test("Lockerung wie bisher: Suchmodus leer, Kurs erfüllt die Filter nicht: Stufe 2 mit Hinweis, Kurs vorn", async () => {
+      const filters = { bookable: true, dateFrom: "2027-01-01" };
+      const stub = emptyWhenFiltered(mode);
+      const { result, trace } = await traced(() =>
+        searchF(mode, MAINZ_QUESTIONS[1], { filters })
+      );
+      const before = await withoutLookup(mode, MAINZ_QUESTIONS[1], { filters });
+      stub.mockRestore();
+      expect(trace).toMatchObject({ relaxStage: 2, relaxed: true });
+      expect(hasNote(result, RELAX_ALL)).toBe(true);
+      expect(ids(result)[0]).toBe(courseId(WAITLIST));
+      expect(ids(result).slice(1)).toEqual(ids(before).slice(0, 3));
+      expect(trace.courseNumbers.found.map((f) => f.id)).toEqual([
+        courseId(WAITLIST),
+      ]);
+    });
+
+    test("Lockerung wie bisher: Kurs erfüllt die Filter ohne Zeitraum: Stufe 1 mit Hinweis", async () => {
+      const stub = emptyWhenFiltered(mode);
+      const { result, trace } = await traced(() =>
+        searchF(mode, MAINZ_QUESTIONS[1], {
+          filters: { bookable: false, dateFrom: "2027-01-01" },
+        })
+      );
+      stub.mockRestore();
+      expect(trace).toMatchObject({
+        relaxStage: 1,
+        relaxed: true,
+        whereClause: "bookable = false",
+      });
+      expect(hasNote(result, RELAX_TIME)).toBe(true);
+      expect(ids(result)).toEqual([courseId(WAITLIST)]);
+    });
+
+    test("Lockerung wie bisher: Kurs erfüllt die Filter: keine Lockerung, kein Hinweis", async () => {
+      const stub = emptyWhenFiltered(mode);
+      const { result, trace } = await traced(() =>
+        searchF(mode, MAINZ_QUESTIONS[1], { filters: { bookable: false } })
+      );
+      stub.mockRestore();
+      expect(trace).toMatchObject({ relaxStage: 0, relaxed: false });
+      expect(result.contextTexts.join("\n")).not.toContain("Hinweis an den");
+      expect(ids(result)).toEqual([courseId(WAITLIST)]);
+    });
+
+    test("Lockerung wie bisher: Zeitraum ohne Kurse: Stufe 1 mit Hinweis, Kurs mit der Nummer trotzdem vorn", async () => {
+      const filters = { bookable: true, dateFrom: "2030-01-01" };
+      const { result, trace } = await traced(() =>
+        searchF(mode, MAINZ_QUESTIONS[0], { filters })
+      );
+      const before = await withoutLookup(mode, MAINZ_QUESTIONS[0], { filters });
+      expect(trace).toMatchObject({
+        relaxStage: 1,
+        relaxed: true,
+        whereClause: "bookable = true",
+      });
+      expect(hasNote(result, RELAX_TIME)).toBe(true);
+      expect(hasNote(before, RELAX_TIME)).toBe(true);
+      expect(ids(result)[0]).toBe(courseId(WAITLIST));
+      expect(ids(result).slice(1)).toEqual(ids(before).slice(0, 3));
+      for (const source of result.sources.slice(1))
+        expect(source.bookable).toBe(true);
     });
   });
 });
