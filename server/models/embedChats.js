@@ -18,6 +18,9 @@ const {
 } = require("../utils/helpers/chat/conversationSearch");
 const prisma = require("../utils/prisma");
 const { MessageLedger } = require("./messageLedger");
+const {
+  EARLIER_QUESTIONS_MAX,
+} = require("../utils/helpers/chat/queryRewriter");
 
 /**
  * @typedef {Object} EmbedChat
@@ -574,37 +577,13 @@ const EmbedChats = {
     }
 
     try {
-      // Build WHERE clause dynamically based on identifier type
-      const whereClause = {
-        embed_id: Number(embedId),
-        include: true,
-      };
-
-      if (identifierType === "conversation_id") {
-        if (boundSessionId && String(identifierId) === String(boundSessionId)) {
-          // KIE-503: Legacy-Zeilen (vor KIE-502) haben conversation_id NULL und
-          // werden in Konversations-Listen via COALESCE unter der session_id
-          // gruppiert. Wählt das Widget diesen Bucket (identifierId ===
-          // boundSessionId), müssen die NULL-Zeilen mitgeladen werden — sonst
-          // verspricht die Liste N Nachrichten, die Auswahl lädt aber leer.
-          // Session-Bindung bleibt strikt (BOLA, KIE-505).
-          whereClause.session_id = String(boundSessionId);
-          whereClause.OR = [
-            { conversation_id: String(identifierId) },
-            { conversation_id: null },
-          ];
-        } else {
-          whereClause.conversation_id = String(identifierId);
-          // BOLA/IDOR hardening (KIE-505): bind the conversation to its owning
-          // session so a leaked conversationId alone cannot load foreign history.
-          if (boundSessionId) whereClause.session_id = String(boundSessionId);
-        }
-      } else {
-        whereClause.session_id = String(identifierId);
-      }
-
       const chats = await prisma.embed_chats.findMany({
-        where: whereClause,
+        where: this._historyWhere(
+          embedId,
+          identifierId,
+          identifierType,
+          boundSessionId
+        ),
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
@@ -613,6 +592,110 @@ const EmbedChats = {
     } catch (error) {
       console.error(error.message);
       return [];
+    }
+  },
+
+  /**
+   * WHERE des Widget-Verlaufs (forEmbedByUser), der früheren Fragen für den
+   * Query Rewriter (earlierPrompts) und des Löschens im Widget
+   * (markHistoryInvalid, ohne include): nur sichtbare Zeilen (include) des
+   * Widgets, die Unterhaltung an ihre Sitzung gebunden (KIE-505). Die eine
+   * Quelle dieser Regel; Lesen und Invalidieren meinen so dieselben Zeilen.
+   * @param {number} embedId
+   * @param {string} identifierId - session_id oder conversation_id
+   * @param {string} identifierType - "session_id" oder "conversation_id"
+   * @param {string|null} boundSessionId - besitzende Sitzung der Unterhaltung
+   * @returns {Object}
+   */
+  _historyWhere: function (
+    embedId,
+    identifierId,
+    identifierType,
+    boundSessionId
+  ) {
+    // Build WHERE clause dynamically based on identifier type
+    const whereClause = {
+      embed_id: Number(embedId),
+      include: true,
+    };
+
+    if (identifierType === "conversation_id") {
+      if (boundSessionId && String(identifierId) === String(boundSessionId)) {
+        // KIE-503: Legacy-Zeilen (vor KIE-502) haben conversation_id NULL und
+        // werden in Konversations-Listen via COALESCE unter der session_id
+        // gruppiert. Wählt das Widget diesen Bucket (identifierId ===
+        // boundSessionId), müssen die NULL-Zeilen mitgeladen werden, sonst
+        // verspricht die Liste N Nachrichten, die Auswahl lädt aber leer.
+        // Session-Bindung bleibt strikt (BOLA, KIE-505).
+        whereClause.session_id = String(boundSessionId);
+        whereClause.OR = [
+          { conversation_id: String(identifierId) },
+          { conversation_id: null },
+        ];
+      } else {
+        whereClause.conversation_id = String(identifierId);
+        // BOLA/IDOR hardening (KIE-505): bind the conversation to its owning
+        // session so a leaked conversationId alone cannot load foreign history.
+        if (boundSessionId) whereClause.session_id = String(boundSessionId);
+      }
+    } else {
+      whereClause.session_id = String(identifierId);
+    }
+    return whereClause;
+  },
+
+  /**
+   * Frühere Fragen des Besuchers einer Unterhaltung für den Query Rewriter
+   * (Variante E, Form E2, issues/folgefragen-variante-e.md): die Zeilen vor
+   * beforeId (der ersten Runde im Block „Chat history“ des Rewriters), die
+   * neuesten zuerst gelesen, höchstens limit (Standard EARLIER_QUESTIONS_MAX,
+   * dieselbe Grenze wie im Rewriter), zurück älteste zuerst. Gleiche
+   * Auswahl wie forEmbedByUser mit "conversation_id" und gebundener Sitzung
+   * (include, KIE-503, KIE-505), nur das Feld prompt. Ohne Sitzung oder
+   * gültige beforeId keine Abfrage.
+   * @param {Object} input
+   * @param {number} input.embedId
+   * @param {string} input.conversationId
+   * @param {string} input.boundSessionId - besitzende Sitzung (Pflicht)
+   * @param {number} input.beforeId - id der ersten Zeile der Runden im Block „Chat history“
+   * @param {number} [input.limit] - Standard EARLIER_QUESTIONS_MAX (1)
+   * @returns {Promise<string[]|null>} null bei einem Fehler der Datenbank
+   */
+  earlierPrompts: async function ({
+    embedId = null,
+    conversationId = null,
+    boundSessionId = null,
+    beforeId = null,
+    limit = EARLIER_QUESTIONS_MAX,
+  } = {}) {
+    const before = Number(beforeId);
+    if (
+      !embedId ||
+      !conversationId ||
+      !boundSessionId ||
+      !Number.isSafeInteger(before) ||
+      before <= 0
+    )
+      return [];
+    try {
+      const rows = await prisma.embed_chats.findMany({
+        where: {
+          ...this._historyWhere(
+            embedId,
+            conversationId,
+            "conversation_id",
+            boundSessionId
+          ),
+          id: { lt: before },
+        },
+        select: { prompt: true },
+        orderBy: { id: "desc" },
+        take: limit,
+      });
+      return rows.map((row) => row.prompt).reverse();
+    } catch (error) {
+      console.error(`[EmbedChats.earlierPrompts] ${error.message}`);
+      return null;
     }
   },
 
@@ -625,33 +708,19 @@ const EmbedChats = {
     if (!embedId || !identifierId) return [];
 
     try {
-      // Build WHERE clause dynamically
-      const whereClause = {
-        embed_id: Number(embedId),
-      };
-
-      if (identifierType === "conversation_id") {
-        if (boundSessionId && String(identifierId) === String(boundSessionId)) {
-          // KIE-503: Spiegel des Legacy-NULL-Zweigs aus forEmbedByUser — Lesen
-          // und Invalidieren müssen denselben Session-Bucket meinen, sonst
-          // tauchen "gelöschte" Legacy-Zeilen nach Reload wieder auf.
-          whereClause.session_id = String(boundSessionId);
-          whereClause.OR = [
-            { conversation_id: String(identifierId) },
-            { conversation_id: null },
-          ];
-        } else {
-          whereClause.conversation_id = String(identifierId);
-          // BOLA/IDOR hardening (KIE-505): only invalidate history that belongs
-          // to the requesting session, not any session sharing the conversationId.
-          if (boundSessionId) whereClause.session_id = String(boundSessionId);
-        }
-      } else {
-        whereClause.session_id = String(identifierId);
-      }
-
+      // Dieselben Zeilen wie beim Lesen (forEmbedByUser, earlierPrompts):
+      // ein WHERE aus _historyWhere (Legacy-NULL-Bucket KIE-503, Bindung an
+      // die Sitzung KIE-505), sonst tauchen gelöschte Zeilen nach dem Neuladen
+      // im Verlauf oder bei den früheren Fragen wieder auf. include fällt
+      // heraus: Zeilen, die schon unsichtbar sind, bleiben es.
+      const { include, ...where } = this._historyWhere(
+        embedId,
+        identifierId,
+        identifierType,
+        boundSessionId
+      );
       await prisma.embed_chats.updateMany({
-        where: whereClause,
+        where,
         data: {
           include: false,
         },

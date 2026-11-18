@@ -4,6 +4,17 @@ Alle wichtigen Änderungen am AnythingLLM Server werden hier dokumentiert.
 
 ## [Unreleased]
 
+### Query Rewriter: Folgefragen behalten ihr Thema (Variante E, Form E2, 2026-11-16)
+
+- **Widget-Chat:** Der Rewriter sieht wie bisher die letzten 2 Runden des geladenen Verlaufs und zusätzlich die eine frühere Frage des Besuchers derselben Unterhaltung direkt davor (höchstens 1, auf 40 Wörter gekürzt, als „1. …“, unabhängig von `message_limit`) und sucht das Thema rückwärts durch sie (Nachrichtenform E2, D4). Grenze 1 (Nutzer 16.11., vorher 5, dann 2): nur die eine Frage vor den Runden, die das Antwortmodell sieht, denn darüber hinaus kennt es den Kontext nicht. Gemessen gleich gut wie 2, Wartezeit ohne messbaren Unterschied (Median 329 ms heute, 346 ms mit 1 Frage, 322 ms mit 2). Eine Konstante `EARLIER_QUESTIONS_MAX` gilt für die Kürzung, für die Abfrage und als Standard von `EmbedChats.earlierPrompts`. Gebunden an die Sitzung wie der Verlauf (KIE-505), nur sichtbare Zeilen, nur das Feld `prompt` (`EmbedChats.earlierPrompts`). Die Abfrage läuft nur, wenn der Rewriter tatsächlich umschreibt (nicht bei Schalter aus, erster Nachricht oder Fragen über der Wortgrenze).
+- **Rewriter ohne Protokollzeilen (D3):** Die Antworten im Verlauf des Rewriters stehen ohne Kurskarten-Marker, Teaserzeilen und Folgefragen-Vorschläge, so wie gemessen. Das Antwortmodell bekommt sie weiter.
+- **Neuer Prompt und eine Nachrichtenform für alle Aufrufer**, wörtlich die gemessenen (`issues/folgefragen-variante-e/prompt_e.txt`, Form E2). Workspace-, API- und OpenAI-kompatibler Chat geben keine früheren Fragen mit: bis zu 2 Runden wie bisher, ohne Block; Antworten im Rewriter-Verlauf jetzt mit normalisiertem Leerraum (Zeilenumbrüche werden Leerzeichen).
+- **`QUERY_REWRITE_MAX_HISTORY`** zählt Runden im Block „Chat history“ und gilt nur als ganze Zahl ab 1; 0, negative Werte, Brüche oder Text ergeben den Standard 2 (bisher wurde ein negativer Wert zu einem unbegrenzten Verlauf).
+- **OpenAI-kompatibler Chat (R8-L1):** Steht `content` im Verlauf als Liste von Inhaltsteilen, nimmt der Rewriter in beiden Rollen den Text der Teile vom Typ „text“ wie bei der letzten Nachricht (`extractTextContent`); Bilder und anderes fallen weg, statt als „[object Object]“ im Verlauf zu stehen. Zeichenketten unverändert.
+- **Verlauf löschen im Widget** (`markHistoryInvalid`) nutzt dasselbe WHERE wie das Lesen des Verlaufs und der früheren Fragen (`_historyWhere`); Verhalten unverändert.
+- Unverändert: Verlauf und Prompt des Antwortmodells, Metadatenfilter, gespeicherte Daten, Wortgrenze und Schalter (`shouldRewrite`). Keine Schemaänderung, keine Migration.
+- Tests: `queryRewriterVarianteE.test.js` (Prompt und Form E2 byte-gleich zur Messung, Fixture `queryRewriteFormE2.json` aus `form_e2_referenz.py`; Zufallsabgleich `abgleich_form_e2.js` 400 von 400), `embedChatsEarlierPrompts.test.js` (echte SQLite-Datei: Sitzungsbindung, Invalidieren trifft dieselben Zeilen wie Lesen), `embedStreamEarlierQuestions.test.js` (Widget-Pfad: Form E2, ohne Protokollzeilen, keine Abfrage ohne Rewrite, Antwortmodell unverändert).
+
 ### Widget: Antwortsprache bei Nachrichten ohne Wörter (sprache-nur-nummer, 2026-11-16)
 
 - **Anlass:** Besteht eine Widget-Nachricht nur aus einer Kursnummer (z. B. „I730112“), findet das Modell keine Sprache und rät. Flotte am 16.11.2026: Als erste Nachricht eines Gesprächs wurden 58 von 187 solcher Nachrichten englisch beantwortet.

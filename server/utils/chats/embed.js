@@ -9,7 +9,11 @@ const {
 } = require("../helpers/chat/responses");
 const { DocumentManager } = require("../DocumentManager");
 const { courseInventoryGuard } = require("./courseInventory");
-const { rewriteQueryForSearch } = require("../helpers/chat/queryRewriter");
+const {
+  rewriteQueryForSearch,
+  rewriteHistoryTurns,
+  EARLIER_QUESTIONS_MAX,
+} = require("../helpers/chat/queryRewriter");
 const { startMetadataFilterResolution } = require("./metadataFilterResolver");
 const {
   courseCardsEnabled,
@@ -35,6 +39,7 @@ const {
   parseCardsReply,
   storedTeaserLines,
   restoreCardsMarkers,
+  cleanStoredResponse,
 } = require("./embedCardsMarker");
 const {
   buildChainedContext,
@@ -128,12 +133,13 @@ async function streamChatWithForEmbed(
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
-  const { rawHistory, chatHistory } = await recentEmbedChatHistory(
-    conversationId, // Use conversationId instead of sessionId for RAG context
-    embed,
-    messageLimit,
-    sessionId // BOLA/IDOR hardening (KIE-505): only load context of the owning session
-  );
+  const { rawHistory, chatHistory, searchHistory } =
+    await recentEmbedChatHistory(
+      conversationId, // Use conversationId instead of sessionId for RAG context
+      embed,
+      messageLimit,
+      sessionId // BOLA/IDOR hardening (KIE-505): only load context of the owning session
+    );
 
   // See stream.js comment for more information on this implementation.
   // KIE-576 Paket 3 (E35): veraltete Kursdokumente (Kursnummer nicht im
@@ -176,11 +182,22 @@ async function streamChatWithForEmbed(
         })
       : null;
 
+  // Variante E: Verlauf ohne Protokollzeilen (D3) und frühere Fragen des
+  // Besuchers nur für die Suchfrage; das Antwortmodell und der
+  // Metadatenfilter sehen weiter genau chatHistory. Die früheren Fragen lädt
+  // der Rewriter erst, wenn er umschreibt (E-R2).
   const searchQuery = await rewriteQueryForSearch({
     userQuery: message,
-    chatHistory,
+    chatHistory: searchHistory.chatHistory,
     LLMConnector,
     workspace: embed.workspace,
+    loadEarlierUserQuestions: () =>
+      earlierVisitorQuestions({
+        embed,
+        conversationId,
+        sessionId,
+        rows: searchHistory.rows,
+      }),
   });
 
   const vectorSearchResults =
@@ -581,7 +598,9 @@ function embedSystemPrompt(basePrompt, { cardsOn }) {
  * Kurskarten v2: rawHistory/chatHistory sind nur für den LLM-Prompt — gespeicherte
  * Karten-Marker (courseCardsMarker) stehen dort wieder als erste Antwortzeile,
  * gespeicherte Folgefragen (followUps) als letzte.
- * @returns {Promise<{rawHistory: import("@prisma/client").embed_chats[], chatHistory: {role: string, content: string, attachments?: Object[]}[]}>
+ * searchHistory: Verlauf für den Query Rewriter aus denselben Zeilen, ohne
+ * diese Protokollzeilen (searchHistoryOf).
+ * @returns {Promise<{rawHistory: import("@prisma/client").embed_chats[], chatHistory: {role: string, content: string, attachments?: Object[]}[], searchHistory: {rows: import("@prisma/client").embed_chats[], chatHistory: {role: string, content: string}[]}}>
  */
 async function recentEmbedChatHistory(
   conversationId,
@@ -605,7 +624,66 @@ async function recentEmbedChatHistory(
   return {
     rawHistory: promptHistory,
     chatHistory: convertToPromptHistory(promptHistory),
+    searchHistory: searchHistoryOf(rawHistory),
   };
+}
+
+/**
+ * Verlauf für den Query Rewriter (D3, Fixliste rc7 E-R1): die geladenen
+ * Zeilen vor restoreCardsMarkers, also ohne Kurskarten-Marker, Teaserzeilen
+ * und Folgefragen-Vorschläge; Altdatensätze mit Markern im Text bereinigt
+ * (cleanStoredResponse, stripProtocolMarkers). So sieht der Rewriter im
+ * Betrieb dieselbe Eingabe wie in der Messung.
+ * rows sind genau die Zeilen, aus denen chatHistory entstand, je Zeile eine
+ * Runde (convertToPromptHistory verwirft kaputte Zeilen); daraus bestimmt
+ * das Widget, wo die früheren Fragen enden.
+ * @param {import("@prisma/client").embed_chats[]} loaded - geladene Zeilen, älteste zuerst
+ * @returns {{rows: import("@prisma/client").embed_chats[], chatHistory: {role: string, content: string}[]}}
+ */
+function searchHistoryOf(loaded) {
+  const rows = [];
+  const chatHistory = [];
+  for (const row of loaded) {
+    const round = convertToPromptHistory([
+      { ...row, response: cleanStoredResponse(row.response) },
+    ]);
+    if (round.length === 0) continue;
+    rows.push(row);
+    chatHistory.push(...round);
+  }
+  return { rows, chatHistory };
+}
+
+/**
+ * Frühere Fragen des Besuchers für den Query Rewriter (Variante E, Form E2,
+ * issues/folgefragen-variante-e.md): die Fragen derselben Unterhaltung vor
+ * der ersten Runde im Block „Chat history“ (die letzten rewriteHistoryTurns
+ * Zeilen des Rewriter-Verlaufs, dieselbe Zahl wie in buildRewriteMessages),
+ * höchstens EARLIER_QUESTIONS_MAX (1, dieselbe Grenze wie die Kürzung in
+ * buildRewriteMessages), älteste zuerst, unabhängig von message_limit.
+ * Gebunden an die Sitzung wie recentEmbedChatHistory (KIE-505). Nur als
+ * Lader von rewriteQueryForSearch (läuft erst nach shouldRewrite, also mit
+ * Verlauf); ohne Zeilen fragt earlierPrompts nicht.
+ * @param {Object} input
+ * @param {{id: number}} input.embed
+ * @param {string} input.conversationId
+ * @param {string} input.sessionId
+ * @param {{id: number}[]} input.rows - Zeilen des Rewriter-Verlaufs (searchHistoryOf), älteste zuerst
+ * @returns {Promise<string[]|null>} null: Abfrage fehlgeschlagen, der Rewriter arbeitet wie ohne frühere Fragen
+ */
+async function earlierVisitorQuestions({
+  embed,
+  conversationId,
+  sessionId,
+  rows,
+}) {
+  return await EmbedChats.earlierPrompts({
+    embedId: embed.id,
+    conversationId,
+    boundSessionId: sessionId,
+    beforeId: rows.slice(-rewriteHistoryTurns())[0]?.id,
+    limit: EARLIER_QUESTIONS_MAX,
+  });
 }
 
 module.exports = {
