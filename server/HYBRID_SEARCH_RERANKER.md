@@ -146,6 +146,9 @@ back to unfiltered queries. **Empty-result fallback** is staged: (1) full
 filters, (2) time constraints dropped, (3) unfiltered — on relaxation the LLM
 receives an explicit German note (context only, never a fabricated citation)
 so the answer says "nothing in the requested period — but from October…".
+Exception (since 16.11.2026): a course number named in the question (3g) finds
+its course regardless of these filters; all other slots stay filtered, and the
+relaxation decides exactly as before.
 
 Data path: the course crawler (Pipelines repo, branch
 `kie-480-metadaten-extractor`) sends the structured fields with each upload;
@@ -269,9 +272,18 @@ in allen vier Modi, sofern die Tabelle einen Volltextindex auf `text` hat.
    eine Regex mit einer Zeichenklasse, Ränder schneidet eine Indexschleife ab (lange
    Eingaben bleiben linear). Ohne Kandidaten läuft keine zusätzliche Abfrage.
 2. **Suche:** je Kandidat eine Volltextsuche nur nach diesem Wort (alle Trigramme
-   verlangt, höchstens 50 Treffer, ohne Spalte `vector`), parallel zum Suchmodus
-   und mit derselben Bedingung (Metadatenfilter, Ausschluss veralteter Kurse des
-   Kursbestands). Der Kandidat steht nie in einer `where`-Bedingung.
+   verlangt, höchstens 50 Treffer, ohne Spalte `vector`), einmal je Frage parallel
+   zum ersten Suchlauf, mit Ausschluss veralteter Kurse des Kursbestands, aber
+   **ohne Metadatenfilter** (seit 16.11.2026, Mainz: „Ist im Kurs XI66151 noch was
+   frei?“ setzt `bookable = true`, der Kurs auf der Warteliste fiel heraus). Eine
+   genannte Nummer findet ihren Kurs also auch, wenn Status, Termin, Tageszeit,
+   Wochentag, Ort, Preis oder Format nicht zu den Filtern passen; seine Angaben
+   stehen im Kurs selbst. Die übrigen Plätze bleiben gefiltert. Die Lockerung bei
+   leerem Ergebnis (3d) entscheidet wie vorher: Ein Suchlauf zählt als „mit
+   Treffern“, wenn der Suchmodus etwas fand oder ein gefundener Kurs die Bedingung
+   der Stufe erfüllt. Das prüft eine zweite Kursnummernsuche mit der Bedingung,
+   nur wenn der Suchmodus leer ist, ein Kurs gefunden wurde und die Stufe filtert.
+   Der Kandidat steht nie in einer `where`-Bedingung.
 3. **Prüfung:** Erkannt ist eine Nummer nur, wenn ein Treffer sie in der Kopfzeile
    `Kursnummer:` seines Kopfblocks führt (wie der Kursbestand sie liest). Jahr,
    Postleitzahl, Telefonnummer, Datum oder Preis ohne solches Kursdokument ändern
@@ -293,7 +305,9 @@ parallelen Ausführung im Median höchstens 5 ms mehr. **Search-Trace:** Block
 `search_trace = full`, weil Kandidaten Telefonnummern sein können), `recognized`
 (Kursnummern aus den Kopfzeilen), `found` (id, title, courseNumber), `skipped`
 (`no_fts_index`), `error`, `ms`; in `final.docs` tragen gefundene Kurse
-`courseNumber`.
+`courseNumber`. `courseNumbers` stammt aus der Suche ohne Metadatenfilter (die
+Prüfung bei der Lockerung schreibt keine Suchspur); `whereClause` und `relaxStage`
+gelten für den Suchmodus.
 
 ---
 
