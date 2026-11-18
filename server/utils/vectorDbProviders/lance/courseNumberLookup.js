@@ -429,7 +429,34 @@ function mergeCourseNumberHits(result, hits, topN) {
   return merged;
 }
 
+const lookupNoticesShown = new Set();
+
+/**
+ * Einmaliger Hinweis im Log je Rückfallart und Tabelle, wenn die
+ * Kursnummernsuche still ohne Treffer bleibt (K-R2): kein Volltextindex
+ * (`no_fts_index`) oder eine Abfrage wirft (`error`). Ein per Kursnummer
+ * gefragter Kurs hängt dann allein an der Auswahlstufe, die ihn nicht
+ * schützt (D8). Der Fehlertext steht schon in der Zeile `courseNumberLookup`
+ * des Loggers; der Hinweis wiederholt ihn nicht.
+ * @param {"no_fts_index"|"error"} kind
+ * @param {string} namespace
+ */
+function noticeLookupFallback(kind, namespace) {
+  const key = `${kind}:${namespace}`;
+  if (lookupNoticesShown.has(key)) return;
+  lookupNoticesShown.add(key);
+  const table = JSON.stringify(String(namespace));
+  const cause =
+    kind === "no_fts_index"
+      ? `Tabelle ${table} hat keinen Volltextindex auf "text"`
+      : `Abfrage in Tabelle ${table} fehlgeschlagen`;
+  console.warn(
+    `[Kursnummernsuche] ${cause}: Kurse werden nicht über ihre Kursnummer gefunden, ein gefragter Kurs kann in den Quellen fehlen. Hinweis einmal je Tabelle und Prozess.`
+  );
+}
+
 module.exports = {
+  noticeLookupFallback,
   courseNumberCandidates,
   courseNumberSearchForms,
   courseNumberSearchPlan,
