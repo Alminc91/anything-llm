@@ -173,6 +173,23 @@ const REPLY_MEASURED_NO_MAP = [
   `[**Alle Kurse in Sport**](${SPORT_URL})`,
   "Fragen? Gern.",
 ].join("\n");
+// F02: eigene Einleitung des Modells (R6-D3) vor einer Adresse in keiner
+// Quelle: ohne Link entfällt die ganze gehaltene Zeile, kein „hier:“ ohne Link
+const REPLY_OWN_INTRO = [
+  "Passend:",
+  `1. [**Rückenfit**](${COURSE_URL})`,
+  "",
+  `Weitere Angebote finden Sie hier: [Alle 120 Kurse in Digitales und Medien](${HOST}/kursprogramm/digitales-medien)`,
+  "",
+  "Fragen? Gern.",
+].join("\n");
+const REPLY_OWN_INTRO_NO_MAP = [
+  "Passend:",
+  `1. [**Rückenfit**](${COURSE_URL})`,
+  "",
+  "",
+  "Fragen? Gern.",
+].join("\n");
 // S7-1 englisch: zwei Links mit Komma bzw. in der Zeile darunter
 const REPLY_E29_EN = [
   `More courses on this topic: [Back](${SPORT_URL}/ruecken), [Sports](${SPORT_URL})`,
@@ -583,6 +600,13 @@ describe("8.2.1 (AK-1, AK-7): ohne gültige Karte Kontext ohne die vier Zeilen, 
         streaming,
         REPLY_MEASURED,
         REPLY_MEASURED_NO_MAP,
+      ],
+      [
+        `${name}, ${mode}, eigene Einleitung ohne Link (F02)`,
+        map,
+        streaming,
+        REPLY_OWN_INTRO,
+        REPLY_OWN_INTRO_NO_MAP,
       ],
     ])
   );

@@ -835,6 +835,65 @@ describe("OverviewLinkFilter: Stream gleich ganze Antwort (AK-15)", () => {
   });
 });
 
+describe("8.2.1 (F02): eigene Einleitung des Modells (R6-D3), deren Link entfällt: die gehaltene Zeile entfällt ganz, mit und ohne gültige Karte", () => {
+  const ENGLISCH_URL = `${HOST}/kursprogramm/sprachen/englisch`;
+  const DIGITAL_URL = `${HOST}/kursprogramm/digitales-medien`;
+  const EMPTY = chains.EMPTY_MAP;
+  // ohne gültige Karte: Prüfer ohne Knoten (AK-7); ENGLISCH_URL ist bekannt
+  // (source: einer gecrawlten Kategorieseite), DIGITAL_URL in keiner Quelle
+  const NO_MAP = createOverviewLinkGuard({
+    contextTexts: applyCategoryChains(
+      [
+        courseDoc("Hatha-Yoga", "26100-001", "Sport \\ Yoga", COURSE_URL),
+        `<document_metadata>\nsource: ${ENGLISCH_URL}\n</document_metadata>\n\nEnglischkurse`,
+      ],
+      EMPTY
+    ),
+    map: EMPTY,
+  });
+  const MEASURED = `Weitere Angebote finden Sie hier: [Alle 120 Kurse in Digitales und Medien](${DIGITAL_URL})`;
+  const REPLIES = [
+    [
+      "Beispiel der Messung mitten in der Antwort",
+      `${LIST}\n\n${MEASURED}\n\nViel Spaß!`,
+      `${LIST}\n\n\nViel Spaß!`,
+    ],
+    [
+      "Beispiel der Messung am Antwortende",
+      `${LIST}\n\n${MEASURED}`,
+      `${LIST}\n\n`,
+    ],
+    [
+      "am Antwortanfang mit Schmuck, fett und Punkt",
+      `👉 **Weitere Angebote:** [Sport (3 Kurse)](${HOST}/erfunden).\nViel Spaß!`,
+      "Viel Spaß!",
+    ],
+  ];
+  const CASES_F02 = REPLIES.flatMap(([name, reply, expected]) => [
+    [`ohne gültige Karte, ${name}`, NO_MAP, reply, expected],
+    [`mit gültiger Karte, ${name}`, GUARD, reply, expected],
+  ]);
+
+  test.each(CASES_F02)(
+    "%s: keine Zeile mit „:“ ohne Link, Stream in jeder Aufteilung gleich der ganzen Antwort",
+    (_name, guard, reply, expected) => {
+      expect(parseCardsReply(reply, { overviewLinks: guard }).text).toBe(
+        expected
+      );
+      expect([...splitEverywhere(reply, guard)]).toEqual([expected]);
+    }
+  );
+
+  test("Gegenprobe Regel 4: bekannte Adresse ohne Knoten, die Kurszahl fällt weg, Einleitung und Link bleiben", () => {
+    const reply = `${LIST}\n\nWeitere Angebote finden Sie hier: [Alle 1 Kurse in Englisch](${ENGLISCH_URL})\n\nViel Spaß!`;
+    const expected = `${LIST}\n\nWeitere Angebote finden Sie hier: [Alle Kurse in Englisch](${ENGLISCH_URL})\n\nViel Spaß!`;
+    expect(parseCardsReply(reply, { overviewLinks: NO_MAP }).text).toBe(
+      expected
+    );
+    expect([...splitEverywhere(reply, NO_MAP)]).toEqual([expected]);
+  });
+});
+
 describe("eine Entscheidung für Stream und ganze Antwort (Zufallsantworten, fester Startwert)", () => {
   // kleine Bausteine echter Antworten; jede Zusammensetzung muss im Stream
   // (zufällige Token-Grenzen) genauso aussehen wie ganz geprüft, und keine
