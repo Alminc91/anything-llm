@@ -955,8 +955,9 @@ function categoryMapUpdatedAt(map) {
 }
 
 // 8.2.1: Karte ohne Knoten für „keine gültige Karte“, aus demselben Aufbau
-// wie jede Karte (gleiche Felder). Nie verändert, für alle Anfragen gleich.
-const EMPTY_MAP = Object.freeze(buildCategoryMap({ nodes: {} }));
+// wie jede Karte (gleiche Felder). Ein Objekt für alle Anfragen; kein Code
+// beschreibt es (wie die gültige Karte im Cache).
+const EMPTY_MAP = buildCategoryMap({ nodes: {} });
 
 // Zuletzt gelesener Wert und seine Laufzeitform: neu geparst wird nur, wenn
 // sich der gespeicherte Wert ändert (die Pipeline schreibt aus einem anderen

@@ -723,14 +723,13 @@ describe("8.2.1: ohne gültige Karte keine ungeprüften Kategoriezeilen im Konte
     }
   );
 
-  test("leere Karte: ohne Knoten, Kurse und course_links, unveränderlich, ohne Stand", () => {
+  test("leere Karte: ohne Knoten, Kurse und course_links, ohne Stand", () => {
     expect(EMPTY.nodes.size).toBe(0);
     expect(EMPTY.byUrl.size).toBe(0);
     expect(EMPTY.courses.size).toBe(0);
     expect(EMPTY.courseTitles.size).toBe(0);
     expect(EMPTY.courseNumbers.size).toBe(0);
     expect(EMPTY.courseUrls.size).toBe(0);
-    expect(Object.isFrozen(EMPTY)).toBe(true);
     expect(categoryMapUpdatedAt(EMPTY)).toBeNull();
   });
 
