@@ -418,8 +418,9 @@ async function chatSync({
   // and does not appear to the user that a new response used information that is otherwise irrelevant for a given prompt.
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
   // KIE-576: Kategorie-Kette im Kontext (nur contextTexts, siehe
-  // embedCategoryChains.js); ohne gültige Karte unverändert. Die Absicherung
-  // der Links gibt es nur im Embed-Pfad (Markerfilter).
+  // embedCategoryChains.js); ohne gültige Karte fallen die Kategorie- und
+  // Bereich-Link-Zeilen ohne Kette weg (8.2.1). Die Absicherung der Links
+  // gibt es nur im Embed-Pfad (Markerfilter).
   ({ contextTexts } = await buildChainedContext(contextTexts, filledSources));
   sources = [...sources, ...vectorSearchResults.sources];
 
@@ -844,8 +845,9 @@ async function streamChat({
   // and does not appear to the user that a new response used information that is otherwise irrelevant for a given prompt.
   // TLDR; reduces GitHub issues for "LLM citing document that has no answer in it" while keep answers highly accurate.
   // KIE-576: Kategorie-Kette im Kontext (nur contextTexts, siehe
-  // embedCategoryChains.js); ohne gültige Karte unverändert. Die Absicherung
-  // der Links gibt es nur im Embed-Pfad (Markerfilter).
+  // embedCategoryChains.js); ohne gültige Karte fallen die Kategorie- und
+  // Bereich-Link-Zeilen ohne Kette weg (8.2.1). Die Absicherung der Links
+  // gibt es nur im Embed-Pfad (Markerfilter).
   ({ contextTexts } = await buildChainedContext(contextTexts, filledSources));
   sources = [...sources, ...vectorSearchResults.sources];
 

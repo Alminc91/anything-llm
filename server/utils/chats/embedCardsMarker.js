@@ -78,14 +78,16 @@
 // dasselbe wie die ganze Antwort (parseCardsReply). Gespeichert als
 // followUps (Widget-Verlauf), im LLM-Verlauf wieder als letzte Zeile.
 //
-// KIE-576 Absicherung: Mit gültiger Kategorie-Karte (embedCategoryChains.js,
-// nur ohne Kurskarten) prüft eine letzte Stufe (OverviewLinkFilter) jeden
-// Link an seiner Adresse, bevor er gesendet wird (R1-D1): Knoten der Karte
-// bekommen Titel, Zahl und Adresse aus der Karte; Übersichtslinks auf einen
-// Kurs-Link oder eine unbekannte Adresse entfallen; die Übersichtszeile
+// KIE-576 Absicherung: Ohne Kurskarten (embedCategoryChains.js) prüft eine
+// letzte Stufe (OverviewLinkFilter) jeden Link an seiner Adresse, bevor er
+// gesendet wird (R1-D1): Knoten der Karte bekommen Titel, Zahl und Adresse
+// aus der Karte; Übersichtslinks auf einen Kurs-Link oder eine unbekannte
+// Adresse entfallen; die Übersichtszeile
 // „Mehr Kurse zum Thema: [<Titel> (<n> Kurse)](<url>)“ setzt der Server (E29),
-// je Link eine Zeile (S7-1).
-// Stream und gespeicherter Text entscheiden gleich; ohne Karte keine Stufe.
+// je Link eine Zeile (S7-1). Ohne gültige Karte läuft die Stufe ohne Knoten
+// (8.2.1).
+// Stream und gespeicherter Text entscheiden gleich; im Kurskarten-Modus
+// keine Stufe.
 
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { safeJsonParse } = require("../http");
