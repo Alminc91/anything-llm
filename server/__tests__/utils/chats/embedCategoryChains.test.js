@@ -12,6 +12,7 @@ const {
   validateCategoryMapSetting,
   loadCategoryMap,
   applyCategoryChains,
+  buildChainedContext,
   createOverviewLinkGuard,
   categoryMapUpdatedAt,
   __test__,
@@ -113,6 +114,33 @@ const CHAIN_KRAFT = [
   ...CHAIN_SPORT,
   `Kategorie-Ebene 3: Sport & Fitness · Kraft & Ausdauer (1 Kurs) | ${HOST}/kursprogramm/fitness-gesundheit/sport-fitness/kategorie/Kraft+Ausdauer/149`,
 ];
+
+// 8.2.1: courseText() ohne gültige Karte. Die vier Zeilen im Kopfblock fallen
+// weg, alle übrigen Zeilen bleiben in derselben Reihenfolge, die Zeile
+// „Kategorie-Link:“ der Beschreibung bleibt (NAK-1).
+const COURSE_STRIPPED = [
+  "<document_metadata>",
+  "sourceDocument: www-vhs-beispiel-de-kurssuche-kurs-rueckenfit.txt",
+  "published: 10/22/2026, 4:41:54 AM",
+  "</document_metadata>",
+  "",
+  "Titel: Rückenfit",
+  "Kursnummer: 26100-001",
+  "Kursgebühr: 45,00",
+  "Kategorie: Kraft & Ausdauer",
+  "Kategoriepfad: Fitness & Gesundheit \\ Sport & Fitness \\ Kraft & Ausdauer",
+  `Kurs-Link: ${HOST}/kurssuche/kurs/rueckenfit/26100-001`,
+  "",
+  "Kursbeschreibung: Kräftigung für den Rücken.",
+  "Kategorie-Link: steht in der Beschreibung und bleibt",
+].join("\n");
+// dasselbe für Varianten von courseText(); der Abgleich mit COURSE_STRIPPED
+// steht im Test „AK-1“
+const withoutLinkLines = (text) =>
+  text.replace(
+    /^(?:Kategorie-Link-Titel|Kategorie-Link|Bereich-Link-Titel|Bereich-Link): .*\n(?=[\s\S]*\nKursbeschreibung)/gm,
+    ""
+  );
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -361,7 +389,7 @@ describe("parseCategoryMap: nur brauchbare Knoten", () => {
 });
 
 describe("applyCategoryChains (AK-14)", () => {
-  test("NAK-6: ohne Karte dasselbe Array, jeder Text bytegleich", () => {
+  test("R1-D4: map null (Kurskarten-Modus) -> dasselbe Array, jeder Text bytegleich", () => {
     const texts = [
       courseText(),
       pageText(`${HOST}/kursprogramm/fitness-gesundheit`),
@@ -475,16 +503,25 @@ describe("applyCategoryChains (AK-14)", () => {
       JSON.stringify(mapData({ created: "2026-10-21T19:59:59Z" })),
     ],
   ])(
-    "K3/NAK-6: Karte %s -> Kursdokument ohne Treffer bytegleich",
+    "K3 (8.2.1): Karte %s -> leere Karte, die vier Zeilen fallen ohne Kette weg, Prüfer ohne Knoten",
     async (_name, value) => {
+      jest.spyOn(console, "error").mockImplementation(() => {});
+      jest.spyOn(Date, "now").mockReturnValue(NOW);
       prisma.system_settings.findFirst.mockResolvedValue(
         value === null ? null : { value }
       );
-      const map = await loadCategoryMap({ now: NOW });
+      expect(await loadCategoryMap({ now: NOW })).toBeNull();
       const texts = [courseText({ path: "Kochen \\ Backen" }), courseText()];
-      expect(map).toBeNull();
-      expect(applyCategoryChains(texts, map)).toBe(texts);
-      expect(createOverviewLinkGuard({ contextTexts: texts, map })).toBeNull();
+      const { contextTexts, map } = await buildChainedContext(texts, {
+        contextTexts: [],
+      });
+      expect(map).toBe(__test__.EMPTY_MAP);
+      expect(map.nodes.size).toBe(0);
+      expect(contextTexts).toEqual(texts.map(withoutLinkLines));
+      expect(contextTexts.join("\n")).not.toMatch(/^Kategorie-Ebene/m);
+      expect(createOverviewLinkGuard({ contextTexts, map })).not.toBeNull();
+      Date.now.mockRestore();
+      console.error.mockRestore();
     }
   );
 
@@ -632,6 +669,299 @@ describe("applyCategoryChains (AK-14)", () => {
     const text =
       "<document_metadata>\nsource: x\nKategoriepfad: Fitness & Gesundheit";
     expect(applyCategoryChains([text], parse())[0]).toBe(text);
+  });
+});
+
+describe("8.2.1: ohne gültige Karte keine ungeprüften Kategoriezeilen im Kontext", () => {
+  const stored = (value) =>
+    prisma.system_settings.findFirst.mockResolvedValue(
+      value === null ? null : { value }
+    );
+  const page = () => pageText(`${HOST}/kursprogramm/fitness-gesundheit`);
+  const EMPTY = __test__.EMPTY_MAP;
+  const INVALID = [
+    ["kein Wert", null],
+    ["leerer Wert", ""],
+    ["verworfene Karte (kein JSON)", "{"],
+    ["verworfene Karte (version 2)", JSON.stringify(mapData({ version: 2 }))],
+    [
+      "älter als 36 h",
+      JSON.stringify(mapData({ created: "2026-10-21T19:59:59Z" })),
+    ],
+    [
+      "mehr als 1 h in der Zukunft",
+      JSON.stringify(mapData({ created: "2026-10-23T09:00:01Z" })),
+    ],
+  ];
+
+  beforeEach(() => {
+    jest.spyOn(Date, "now").mockReturnValue(NOW);
+    jest.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    Date.now.mockRestore();
+    console.error.mockRestore();
+  });
+
+  test("Abgleich: withoutLinkLines(courseText()) ist COURSE_STRIPPED", () => {
+    expect(withoutLinkLines(courseText())).toBe(COURSE_STRIPPED);
+  });
+
+  test.each(INVALID)(
+    "AK-1, NAK-3: %s -> Kopfblock ohne die vier Zeilen, Rest bytegleich, Karte einmal gelesen",
+    async (_name, value) => {
+      stored(value);
+      const { contextTexts, map } = await buildChainedContext([courseText()], {
+        contextTexts: [page()],
+      });
+      expect(map).toBe(__test__.EMPTY_MAP);
+      expect(contextTexts).toEqual([COURSE_STRIPPED, page()]);
+      expect(prisma.system_settings.findFirst).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  test("leere Karte: ohne Knoten, Kurse und course_links, unveränderlich, ohne Stand", () => {
+    expect(EMPTY.nodes.size).toBe(0);
+    expect(EMPTY.byUrl.size).toBe(0);
+    expect(EMPTY.courses.size).toBe(0);
+    expect(EMPTY.courseTitles.size).toBe(0);
+    expect(EMPTY.courseNumbers.size).toBe(0);
+    expect(EMPTY.courseUrls.size).toBe(0);
+    expect(Object.isFrozen(EMPTY)).toBe(true);
+    expect(categoryMapUpdatedAt(EMPTY)).toBeNull();
+  });
+
+  test("AK-1: jede der vier Zeilen fällt an jeder Stelle des Kopfblocks weg, die übrigen behalten ihre Reihenfolge", () => {
+    const text = [
+      "<document_metadata>",
+      "sourceDocument: kurs.txt",
+      "</document_metadata>",
+      "",
+      `Bereich-Link: ${HOST}/alt`,
+      "Titel: Rückenfit",
+      "Kategorie-Link-Titel: Kraft",
+      "Kursnummer: 26100-001",
+      `Kategorie-Link: ${HOST}/alt/kraft`,
+      "Kategoriepfad: Fitness & Gesundheit",
+      "Bereich-Link-Titel: Fitness",
+      `Kurs-Link: ${HOST}/kurssuche/kurs/rueckenfit/26100-001`,
+      "Kategorie: Kraft & Ausdauer",
+      "",
+      "Kursbeschreibung: …",
+    ].join("\n");
+    expect(applyCategoryChains([text], EMPTY)[0]).toBe(
+      [
+        "<document_metadata>",
+        "sourceDocument: kurs.txt",
+        "</document_metadata>",
+        "",
+        "Titel: Rückenfit",
+        "Kursnummer: 26100-001",
+        "Kategoriepfad: Fitness & Gesundheit",
+        `Kurs-Link: ${HOST}/kurssuche/kurs/rueckenfit/26100-001`,
+        "Kategorie: Kraft & Ausdauer",
+        "",
+        "Kursbeschreibung: …",
+      ].join("\n")
+    );
+  });
+
+  test("AK-1: geteilter Kopfblock ohne Kategoriepfad, Text endet im Kopfblock, ohne Metadatenkopf: die Zeilen fallen weg wie mit Karte", () => {
+    const split = [
+      "<document_metadata>",
+      "sourceDocument: kurs.txt",
+      "</document_metadata>",
+      "",
+      `Kategorie-Link: ${HOST}/alt`,
+      `Bereich-Link: ${HOST}/alt-bereich`,
+      "",
+      "Kursbeschreibung: …",
+    ].join("\n");
+    const cut = courseText().split("\n\nKursbeschreibung")[0];
+    const bare = courseText().replace(
+      /^<document_metadata>[\s\S]*?<\/document_metadata>\n\n/,
+      ""
+    );
+    const [outSplit, outCut, outBare] = applyCategoryChains(
+      [split, cut, bare],
+      EMPTY
+    );
+    expect(outSplit).toBe(
+      [
+        "<document_metadata>",
+        "sourceDocument: kurs.txt",
+        "</document_metadata>",
+        "",
+        "",
+        "Kursbeschreibung: …",
+      ].join("\n")
+    );
+    expect(outCut).toBe(COURSE_STRIPPED.split("\n\nKursbeschreibung")[0]);
+    expect(outBare).toBe(
+      COURSE_STRIPPED.replace(
+        /^<document_metadata>[\s\S]*?<\/document_metadata>\n\n/,
+        ""
+      )
+    );
+  });
+
+  test("AK-2: gültige Karte: Kette wie vorher (die vier Zeilen ersetzt), Karte einmal gelesen", async () => {
+    stored(JSON.stringify(mapData()));
+    const { contextTexts, map } = await buildChainedContext([courseText()], {
+      contextTexts: [page()],
+    });
+    expect(map).not.toBeNull();
+    expect(contextTexts).toEqual([
+      COURSE_STRIPPED.replace(
+        /^(Kategoriepfad: .*\n)/m,
+        `$1${CHAIN_KRAFT.join("\n")}\n`
+      ),
+      page().replace(
+        "</document_metadata>\n",
+        `</document_metadata>\n${CHAIN_KRAFT[0]}\n`
+      ),
+    ]);
+    expect(prisma.system_settings.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["gültige Karte", JSON.stringify(mapData())],
+    ["ohne Karte", null],
+  ])(
+    "AK-3, NAK-2: Kurskarten-Modus (enabled = false), %s: Kontext gleich der Eingabe, Karte nicht gelesen",
+    async (_name, value) => {
+      stored(value);
+      const own = [courseText()];
+      const filled = { contextTexts: [page(), courseText({ number: "x" })] };
+      const { contextTexts, map } = await buildChainedContext(own, filled, {
+        enabled: false,
+      });
+      expect(map).toBeNull();
+      expect(contextTexts).toEqual([...own, ...filled.contextTexts]);
+      expect(contextTexts[0]).toBe(own[0]);
+      expect(prisma.system_settings.findFirst).not.toHaveBeenCalled();
+    }
+  );
+
+  test("AK-4, NAK-1: ohne Karte bleiben Texte ohne die vier Zeilen im Kopfblock bytegleich, ohne jede Änderung dasselbe Array", () => {
+    const texts = [
+      // Zeilen nur in der Beschreibung (NAK-1)
+      COURSE_STRIPPED,
+      // gecrawlte Kategorieseite: ohne Karte keine Kette
+      page(),
+      // Zeilen erst nach der ersten Leerzeile einer Seite
+      pageText(
+        `${HOST}/blog`,
+        `Text\n\nKategoriepfad: Fitness & Gesundheit\nKategorie-Link: ${HOST}/x`
+      ),
+      // ohne Kopfblock: Text beginnt mit der Beschreibung
+      `Kursbeschreibung: Rücken\nKategorie-Link: ${HOST}/x\nBereich-Link: ${HOST}/y`,
+      `<document_metadata>\nsourceDocument: k.txt\n</document_metadata>\n\nKursbeschreibung: Rücken\nKategorie-Link: ${HOST}/x`,
+      // unvollständiger Metadatenkopf
+      `<document_metadata>\nsource: x\nKategorie-Link: ${HOST}/x`,
+      // Zeile nicht am Zeilenanfang, anderes Feld
+      `Titel: Rücken\n  Kategorie-Link: ${HOST}/x\nKategorie: Rücken`,
+      "",
+      null,
+    ];
+    const copy = [...texts];
+    expect(applyCategoryChains(texts, EMPTY)).toBe(texts);
+    expect(texts).toEqual(copy);
+  });
+
+  describe("AK-7: Prüfer ohne Knoten (Regeln 2 bis 4)", () => {
+    const ENGLISCH = `${HOST}/kursprogramm/sprachen/englisch`;
+    const COURSE_URL = `${HOST}/kurssuche/kurs/rueckenfit/26100-001`;
+    const guardFor = async (texts, extra = {}) => {
+      stored(null);
+      const { contextTexts, map } = await buildChainedContext(texts, {
+        contextTexts: [],
+      });
+      return createOverviewLinkGuard({ contextTexts, map, ...extra });
+    };
+
+    test("Beispiele der Messung: Zahl zu einer Adresse aus „source:“ einer gecrawlten Kategorieseite fällt weg, Adresse in keiner Quelle wird entfernt", async () => {
+      const guard = await guardFor([courseText(), pageText(ENGLISCH)]);
+      expect(
+        guard.check("**Alle 1 Kurse in Englisch**", ENGLISCH, {
+          lineStart: true,
+        })
+      ).toEqual({
+        remove: false,
+        text: "**Alle Kurse in Englisch**",
+        url: null,
+        line: null,
+      });
+      expect(
+        guard.check(
+          "**Alle 120 Kurse in Digitales und Medien**",
+          `${HOST}/kursprogramm/digitales-medien`,
+          { lineStart: true }
+        )
+      ).toEqual({ remove: true });
+    });
+
+    test("Regel 2: Kurs-Link als Übersichtslink entfernt; Regel 3: Adressen nur aus den entfernten Zeilen sind unbekannt", async () => {
+      const guard = await guardFor([courseText()]);
+      expect(guard.check("Alle Kurse in Rückenfit", COURSE_URL)).toEqual({
+        remove: true,
+      });
+      expect(guard.check("Rückenfit", COURSE_URL, { overview: "de" })).toEqual({
+        remove: true,
+      });
+      expect(
+        guard.check("Alle 3 Kurse in Kraft", `${HOST}/kursprogramm/alt/kraft`)
+      ).toEqual({ remove: true });
+      expect(
+        guard.check("Fitness (3 Kurse)", `${HOST}/kursprogramm/alt`)
+      ).toEqual({ remove: true });
+    });
+
+    test("Regel 4: bekannte Adresse ohne Knoten: Kurszahl fällt weg, Link bleibt; ohne Zahl und Kurs-Links im Fließtext unverändert", async () => {
+      const guard = await guardFor([courseText(), pageText(ENGLISCH)]);
+      const kept = { remove: false, text: "Englisch", url: null, line: null };
+      expect(guard.check("Englisch (12 Kurse)", ENGLISCH)).toEqual(kept);
+      expect(
+        guard.check("Englisch (12 Kurse)", ENGLISCH, { overview: "de" })
+      ).toEqual(kept);
+      expect(guard.check("Englisch", ENGLISCH, { overview: "de" })).toBeNull();
+      expect(guard.check("Rückenfit", COURSE_URL)).toBeNull();
+    });
+
+    test("bekannt: System-Prompt und gespeicherte Quellen (R4-D3), deren Zeilen „Kategorie-Link:“ aber nicht (wie im Kontext)", async () => {
+      const guard = await guardFor([page()], {
+        systemPrompt: `Anmeldung: ${HOST}/anmeldung`,
+        storedChats: [
+          { response: JSON.stringify({ sources: [{ text: courseText() }] }) },
+        ],
+      });
+      expect(guard.check("Anmeldung (2 Kurse)", `${HOST}/anmeldung`)).toEqual({
+        remove: false,
+        text: "Anmeldung",
+        url: null,
+        line: null,
+      });
+      expect(
+        guard.check("Alle 3 Kurse in Kraft", `${HOST}/kursprogramm/alt/kraft`)
+      ).toEqual({ remove: true });
+      // Kurs-Link der gespeicherten Quelle bleibt bekannt
+      expect(guard.check("Rückenfit (1 Kurs)", COURSE_URL)).toEqual({
+        remove: false,
+        text: "Rückenfit",
+        url: null,
+        line: null,
+      });
+    });
+
+    test("NAK-2: Kurskarten-Modus (enabled = false): kein Prüfer", async () => {
+      stored(null);
+      const { contextTexts, map } = await buildChainedContext(
+        [courseText()],
+        { contextTexts: [] },
+        { enabled: false }
+      );
+      expect(createOverviewLinkGuard({ contextTexts, map })).toBeNull();
+    });
   });
 });
 

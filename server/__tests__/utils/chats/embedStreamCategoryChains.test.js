@@ -2,7 +2,9 @@
 // KIE-576 Paket 2 im Embed-Pfad (streamChatWithForEmbed): Kette im Kontext an
 // das Modell (AK-14), Quellen/Verlauf unverändert, Übersichtslinks geprüft im
 // Stream, ohne Streaming und im gespeicherten Text gleich (AK-15); ohne
-// gültige Karte exakt wie vorher (NAK-6).
+// gültige Karte fallen die vier Kategorie-/Bereich-Link-Zeilen ohne Kette
+// weg, der Prüfer läuft ohne Knoten (Regeln 2 bis 4), ebenfalls gleich in
+// Stream, Antwort ohne Streaming und gespeichertem Text (8.2.1, AK-1, AK-7).
 
 jest.mock("../../../utils/prisma", () => ({
   system_settings: { findFirst: jest.fn() },
@@ -86,6 +88,11 @@ const COURSE_TEXT = [
   "",
   "Kursbeschreibung: Kräftigung für den Rücken.",
 ].join("\n");
+// 8.2.1: COURSE_TEXT ohne gültige Karte
+const COURSE_STRIPPED = COURSE_TEXT.replace(
+  /^(?:Kategorie-Link-Titel|Kategorie-Link|Bereich-Link-Titel|Bereich-Link): .*\n/gm,
+  ""
+);
 const PAGE_TEXT = `<document_metadata>\nsourceDocument: sport.html\nsource: ${SPORT_URL}\n</document_metadata>\n\nSport an der VHS`;
 const MAP_JSON = () =>
   JSON.stringify({
@@ -133,6 +140,38 @@ const GUARDED_E29 = [
   "",
   `Mehr Kurse zum Thema: [Rücken (7\u00a0Kurse)](${SPORT_URL}/ruecken)`,
   `Mehr Kurse zum Thema: [Sport (40\u00a0Kurse)](${SPORT_URL})`,
+].join("\n");
+// 8.2.1 (AK-7): dieselben Antworten ohne gültige Karte, Prüfer ohne Knoten.
+// Kurs-Link als Übersichtslink und Adresse nur aus der Karte entfernt
+// (Regeln 2 und 3), bekannte Adresse (source: der Seite) ohne Kurszahl
+// (Regel 4), Kurs-Link im Fließtext unverändert
+const REPLY_NO_MAP = [
+  "Passend:",
+  `1. [**Rückenfit**](${COURSE_URL})`,
+  "",
+  "Fragen? Gern.",
+].join("\n");
+const REPLY_E29_NO_MAP = [
+  `Passend ist [Rückenfit](${COURSE_URL}), mehr unter [Sport](${SPORT_URL}).`,
+  "",
+  `Mehr Kurse zum Thema: [Sport](${SPORT_URL})`,
+].join("\n");
+// Beispiele der Messung vom 19.11.2026: Zahl zu einer Adresse aus „source:“
+// einer gecrawlten Kategorieseite, zusammengesetzte Adresse in keiner Quelle
+const REPLY_MEASURED = [
+  "Passend:",
+  `1. [**Rückenfit**](${COURSE_URL})`,
+  "",
+  `[**Alle 1 Kurse in Sport**](${SPORT_URL})`,
+  `[**Alle 120 Kurse in Digitales und Medien**](${HOST}/kursprogramm/digitales-medien)`,
+  "Fragen? Gern.",
+].join("\n");
+const REPLY_MEASURED_NO_MAP = [
+  "Passend:",
+  `1. [**Rückenfit**](${COURSE_URL})`,
+  "",
+  `[**Alle Kurse in Sport**](${SPORT_URL})`,
+  "Fragen? Gern.",
 ].join("\n");
 // S7-1 englisch: zwei Links mit Komma bzw. in der Zeile darunter
 const REPLY_E29_EN = [
@@ -504,7 +543,7 @@ describe("R1-D4 (NAK-9): im Kurskarten-Modus weder Kette noch Prüfer", () => {
   );
 });
 
-describe("NAK-6: ohne gültige Karte wie vorher", () => {
+describe("8.2.1 (AK-1, AK-7): ohne gültige Karte Kontext ohne die vier Zeilen, Prüfer ohne Knoten", () => {
   const INVALID = [
     ["kein Eintrag", null],
     ["leer", ""],
@@ -530,21 +569,47 @@ describe("NAK-6: ohne gültige Karte wie vorher", () => {
       ["Stream", true],
       ["ohne Streaming", false],
     ].flatMap(([mode, streaming]) => [
-      [`${name}, ${mode}, alte Form`, map, streaming, REPLY],
-      [`${name}, ${mode}, neue Form`, map, streaming, REPLY_E29],
+      [`${name}, ${mode}, alte Form`, map, streaming, REPLY, REPLY_NO_MAP],
+      [
+        `${name}, ${mode}, neue Form`,
+        map,
+        streaming,
+        REPLY_E29,
+        REPLY_E29_NO_MAP,
+      ],
+      [
+        `${name}, ${mode}, Messung`,
+        map,
+        streaming,
+        REPLY_MEASURED,
+        REPLY_MEASURED_NO_MAP,
+      ],
     ])
   );
+
+  test("Erwartung: Kopfblock ohne die vier Zeilen, Rest bytegleich", () => {
+    expect(COURSE_STRIPPED).not.toMatch(/Kategorie-Link|Bereich-Link/);
+    expect(COURSE_STRIPPED).toContain(
+      `Kategoriepfad: Sport \\ Rücken\nKurs-Link: ${COURSE_URL}\n\nKursbeschreibung:`
+    );
+  });
+
   test.each(cases)(
-    "%s: Kontext bytegleich, Antwort gesendet und gespeichert unverändert",
-    async (_name, map, streaming, reply) => {
+    "%s: Kontext ohne die vier Zeilen und ohne Kette, Antwort geprüft, gesendet gleich gespeichert",
+    async (_name, map, streaming, reply, expected) => {
       const { stored, text, contextTexts } = await run({
         map,
         streaming,
         reply,
       });
-      expect(contextTexts).toEqual([COURSE_TEXT, PAGE_TEXT]);
-      expect(text).toBe(reply);
-      expect(stored.text).toBe(reply);
+      expect(contextTexts).toEqual([COURSE_STRIPPED, PAGE_TEXT]);
+      expect(text).toBe(expected);
+      expect(stored.text).toBe(expected);
+      // Quellen (Verlauf, Kurskarten, Zitate) bleiben die Originaltexte
+      expect(stored.sources.map((s) => s.text)).toEqual([
+        COURSE_TEXT,
+        PAGE_TEXT,
+      ]);
     }
   );
 });

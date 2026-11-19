@@ -2,8 +2,9 @@
 // KIE-576 AK-14: Kette im Kontext auch im API-Pfad (ApiChatHandler.chatSync
 // und streamChat) und im Workspace-Chat (streamChatWithWorkspace). Nur der
 // Kontext an das Modell ändert sich, die gespeicherten Quellen nicht; ohne
-// gültige Karte bytegleich (NAK-6). Die Absicherung der Übersichtslinks gibt
-// es in diesem Paket nur im Embed-Pfad.
+// gültige Karte fallen die Kategorie-/Bereich-Link-Zeilen ohne Kette weg
+// (NAK-6, 8.2.1). Die Absicherung der Übersichtslinks gibt es in diesem Paket
+// nur im Embed-Pfad.
 
 jest.mock("../../../utils/prisma", () => ({
   system_settings: { findFirst: jest.fn() },
@@ -101,6 +102,11 @@ const CHAINED = COURSE_TEXT.replace(
   /Kurs-Link: (.*)\nKategorie-Link-Titel: .*\nKategorie-Link: .*\n/,
   `Kategorie-Ebene 1: Sport (40 Kurse) | ${HOST}/sport\nKurs-Link: $1\n`
 );
+// 8.2.1: ohne gültige Karte, Rest bytegleich
+const STRIPPED = COURSE_TEXT.replace(
+  /\nKategorie-Link-Titel: .*\nKategorie-Link: .*\n/,
+  "\n"
+);
 const MAP_JSON = () =>
   JSON.stringify({
     version: 1,
@@ -195,6 +201,13 @@ test("Erwartete Kette: die beiden Link-Zeilen ersetzt", () => {
   );
 });
 
+test("Erwartung ohne Karte: die beiden Link-Zeilen fehlen, keine Kette", () => {
+  expect(STRIPPED).toContain(
+    `Kategoriepfad: Sport \\ Rücken\nKurs-Link: ${HOST}/kurs/26100-001\n\nKursbeschreibung:`
+  );
+  expect(STRIPPED).not.toMatch(/Kategorie-Link|Kategorie-Ebene/);
+});
+
 describe.each(PATHS)("%s", (_name, call) => {
   test("mit gültiger Karte: Kette an das Modell, gespeicherte Quellen unverändert", async () => {
     prisma.system_settings.findFirst.mockResolvedValue({ value: MAP_JSON() });
@@ -218,13 +231,14 @@ describe.each(PATHS)("%s", (_name, call) => {
       },
     ],
   ])(
-    "NAK-6: %s Kontext bytegleich, gespeicherte Antwort unverändert",
+    "NAK-6 (8.2.1): %s Kontext ohne die Link-Zeilen, gespeicherte Quellen und Antwort unverändert",
     async (_name, row) => {
       prisma.system_settings.findFirst.mockResolvedValue(row);
       await call();
       const { contextTexts } = connector.compressMessages.mock.calls[0][0];
-      expect(contextTexts).toEqual([COURSE_TEXT]);
+      expect(contextTexts).toEqual([STRIPPED]);
       const stored = WorkspaceChats.new.mock.calls[0][0].response;
+      expect(stored.sources.map((s) => s.text)).toEqual([COURSE_TEXT]);
       expect(stored.text).toBe("Antwort");
     }
   );
