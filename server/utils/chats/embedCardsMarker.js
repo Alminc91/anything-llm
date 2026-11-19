@@ -909,7 +909,8 @@ function emphasisClosers(lineText) {
  * Kategorie-Link hinter einer kurzen Einleitung (ownIntroLink), setzt der
  * Server die Zeile wie bei der Einleitung E29. Bis zur Entscheidung wird
  * die erste Zeile eines Absatzes gehalten (höchstens OWN_INTRO_MAX Zeichen,
- * Link und Zeilenende dahinter).
+ * Link und Zeilenende dahinter). Entfällt der Link, entfällt die ganze
+ * Zeile samt Zeilenende wie bei E29 (8.2.1 F02), mit und ohne Karte.
  * Nicht erkannte Linkformen ("[" bzw. "<" ohne gültigen Link, verschachtelte
  * Links, Referenzlinks, Links über ein Zeilenende) gelten in
  * Übersichtszeile und -block als entfernte Links (fail-closed); ein Link
@@ -1336,6 +1337,14 @@ class OverviewLinkFilter {
             this.lineStart = false;
             this.line = { lang: verdict.line, raw: "", links: 1, kept: 0 };
             out += this.#lineLink(this.#render(found, verdict));
+            i = found.end;
+            continue;
+          }
+          if (verdict?.remove) {
+            // 8.2.1 F02: der einzige Link der gehaltenen Zeile entfällt, also
+            // die ganze Zeile samt Zeilenende (wie E29 ohne behaltenen Link),
+            // mit und ohne gültige Karte; nichts davon ist gesendet
+            out += this.#removeLink();
             i = found.end;
             continue;
           }
