@@ -980,7 +980,7 @@ describe("createOverviewLinkGuard (AK-15, R1-D1: Prüfer an der Adresse)", () =>
       ...extra,
     });
 
-  test("ohne Karte kein Prüfer", () => {
+  test("map null (Kurskarten-Modus): kein Prüfer", () => {
     expect(
       createOverviewLinkGuard({ contextTexts: [courseText()], map: null })
     ).toBeNull();

@@ -2,8 +2,9 @@
 // KIE-576 AK-15: Absicherung der Links als letzte Stufe des Markerfilters
 // (OverviewLinkFilter, Prüfer an der Adresse nach R1-D1): Stream, ganze
 // Antwort (parseCardsReply, auch fürs Speichern) und jede Aufteilung in
-// Token entscheiden gleich; ohne Prüfer bleibt alles wie vorher (NAK-6,
-// NAK-9).
+// Token entscheiden gleich; ohne Prüfer (map null, Kurskarten-Modus) bleibt
+// alles wie vorher (NAK-9); ohne gültige Karte prüft der Filter ohne Knoten
+// (8.2.1).
 
 jest.mock("../../../utils/prisma", () => ({}));
 
@@ -970,8 +971,8 @@ describe("eine Entscheidung für Stream und ganze Antwort (Zufallsantworten, fes
   });
 });
 
-describe("ohne Prüfer (keine gültige Karte): alles wie vorher", () => {
-  test.each(CASES)("NAK-6: %s", (_name, reply) => {
+describe("ohne Prüfer (map null, Kurskarten-Modus): alles wie vorher", () => {
+  test.each(CASES)("map null (Kurskarten-Modus): %s", (_name, reply) => {
     const before = parseCardsReply(reply);
     expect(parseCardsReply(reply, { overviewLinks: null })).toEqual(before);
     expect([...splitEverywhere(reply, null)]).toEqual([before.text]);

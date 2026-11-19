@@ -1389,7 +1389,8 @@ class OverviewLinkFilter {
 
 /**
  * Übersichtslinks einer vollständigen Antwort prüfen (OverviewLinkFilter in
- * einem Durchgang). Ohne Prüfer (keine gültige Karte) unverändert.
+ * einem Durchgang). Ohne Prüfer (Kurskarten-Modus, map null) unverändert;
+ * ohne gültige Karte prüft der Filter ohne Knoten (8.2.1).
  * @param {any} text
  * @param {object|null} overviewLinks - createOverviewLinkGuard()
  * @returns {any}
