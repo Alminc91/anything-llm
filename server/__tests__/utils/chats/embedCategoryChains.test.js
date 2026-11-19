@@ -135,7 +135,7 @@ const COURSE_STRIPPED = [
   "Kategorie-Link: steht in der Beschreibung und bleibt",
 ].join("\n");
 // dasselbe für Varianten von courseText(); der Abgleich mit COURSE_STRIPPED
-// steht im Test „AK-1“
+// steht im Test „Abgleich“ des Blocks 8.2.1
 const withoutLinkLines = (text) =>
   text.replace(
     /^(?:Kategorie-Link-Titel|Kategorie-Link|Bereich-Link-Titel|Bereich-Link): .*\n(?=[\s\S]*\nKursbeschreibung)/gm,
@@ -507,21 +507,24 @@ describe("applyCategoryChains (AK-14)", () => {
     async (_name, value) => {
       jest.spyOn(console, "error").mockImplementation(() => {});
       jest.spyOn(Date, "now").mockReturnValue(NOW);
-      prisma.system_settings.findFirst.mockResolvedValue(
-        value === null ? null : { value }
-      );
-      expect(await loadCategoryMap({ now: NOW })).toBeNull();
-      const texts = [courseText({ path: "Kochen \\ Backen" }), courseText()];
-      const { contextTexts, map } = await buildChainedContext(texts, {
-        contextTexts: [],
-      });
-      expect(map).toBe(__test__.EMPTY_MAP);
-      expect(map.nodes.size).toBe(0);
-      expect(contextTexts).toEqual(texts.map(withoutLinkLines));
-      expect(contextTexts.join("\n")).not.toMatch(/^Kategorie-Ebene/m);
-      expect(createOverviewLinkGuard({ contextTexts, map })).not.toBeNull();
-      Date.now.mockRestore();
-      console.error.mockRestore();
+      try {
+        prisma.system_settings.findFirst.mockResolvedValue(
+          value === null ? null : { value }
+        );
+        expect(await loadCategoryMap({ now: NOW })).toBeNull();
+        const texts = [courseText({ path: "Kochen \\ Backen" }), courseText()];
+        const { contextTexts, map } = await buildChainedContext(texts, {
+          contextTexts: [],
+        });
+        expect(map).toBe(__test__.EMPTY_MAP);
+        expect(map.nodes.size).toBe(0);
+        expect(contextTexts).toEqual(texts.map(withoutLinkLines));
+        expect(contextTexts.join("\n")).not.toMatch(/^Kategorie-Ebene/m);
+        expect(createOverviewLinkGuard({ contextTexts, map })).not.toBeNull();
+      } finally {
+        Date.now.mockRestore();
+        console.error.mockRestore();
+      }
     }
   );
 
