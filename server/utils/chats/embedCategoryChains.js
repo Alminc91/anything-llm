@@ -99,8 +99,13 @@
 // Im Zweifel bleibt der Link unverändert. Ein kaputtes course_links lässt
 // nur dieses Feld bzw. den Eintrag fallen, nie die Karte.
 //
-// Ohne gültige Karte (fehlt, kein JSON, version ≠ 1, älter als 36 h) gibt es
-// weder Kette noch Absicherung: Kontext und Antwort bleiben exakt wie vorher.
+// Ohne gültige Karte (fehlt, kein JSON, version ≠ 1, älter als 36 h, mehr
+// als 1 h in der Zukunft) gilt die leere Karte EMPTY_MAP ohne Knoten (8.2.1,
+// weicht von KIE-576 NAK-6 ab): Die vier Zeilen fallen ohne Kette weg, das
+// Modell bekommt nur geprüfte Kategoriedaten, und der Prüfer läuft mit den
+// Regeln 2 bis 4 (Regel 1 und AK-21 brauchen Knoten bzw. course_links).
+// Weder Kette noch Prüfer gibt es nur im Kurskarten-Modus (buildChainedContext
+// mit enabled = false, map null, R1-D4).
 
 const prisma = require("../prisma");
 const {
@@ -949,6 +954,10 @@ function categoryMapUpdatedAt(map) {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
+// 8.2.1: Karte ohne Knoten für „keine gültige Karte“, aus demselben Aufbau
+// wie jede Karte (gleiche Felder). Nie verändert, für alle Anfragen gleich.
+const EMPTY_MAP = Object.freeze(buildCategoryMap({ nodes: {} }));
+
 // Zuletzt gelesener Wert und seine Laufzeitform: neu geparst wird nur, wenn
 // sich der gespeicherte Wert ändert (die Pipeline schreibt aus einem anderen
 // Prozess, deshalb wird der Wert je Anfrage gelesen, eine Zeile per Label).
@@ -1223,9 +1232,10 @@ function headerBounds(text) {
 
 /**
  * Kette für einen Kontexttext (siehe Kopfkommentar). Ohne Änderung derselbe
- * String.
+ * String. Mit der leeren Karte (EMPTY_MAP) ist die Kette leer: die vier
+ * Zeilen fallen ohne Ersatz weg (8.2.1).
  * @param {any} text
- * @param {object} map
+ * @param {object} map - Karte oder EMPTY_MAP
  * @returns {any}
  */
 function chainText(text, map) {
@@ -1279,10 +1289,12 @@ function chainText(text, map) {
 }
 
 /**
- * Kontexttexte mit Kette (nur contextTexts, nie sources). Ohne gültige Karte
- * oder ohne Änderung dasselbe Array (NAK-6).
+ * Kontexttexte mit Kette (nur contextTexts, nie sources). Mit map null
+ * (Kurskarten-Modus) oder ohne Änderung dasselbe Array (NAK-6). Ohne gültige
+ * Karte gibt buildChainedContext die leere Karte: die vier Zeilen fallen
+ * ohne Kette weg (8.2.1).
  * @param {string[]} contextTexts
- * @param {object|null} map - loadCategoryMap()
+ * @param {object|null} map - Karte, EMPTY_MAP oder null
  * @returns {string[]}
  */
 function applyCategoryChains(contextTexts, map) {
@@ -1298,8 +1310,10 @@ function applyCategoryChains(contextTexts, map) {
 
 /**
  * Kontext eines Chatpfads (SC7): angeheftete Texte und Treffer, mit Kette,
- * falls eine gültige Karte vorliegt. enabled = false (Kurskarten-Modus,
- * R1-D4): keine Karte, Kontext unverändert.
+ * falls eine gültige Karte vorliegt. Ohne gültige Karte die leere Karte
+ * (8.2.1): die vier Zeilen fallen ohne Kette weg, der Prüfer läuft ohne
+ * Knoten. enabled = false (Kurskarten-Modus, R1-D4): keine Karte gelesen,
+ * map null, Kontext unverändert.
  * @param {string[]} contextTexts
  * @param {{contextTexts: string[]}} filledSources - fillSourceWindow()
  * @param {{enabled?: boolean}} [options]
@@ -1310,7 +1324,7 @@ async function buildChainedContext(
   filledSources,
   { enabled = true } = {}
 ) {
-  const map = enabled ? await loadCategoryMap() : null;
+  const map = enabled ? (await loadCategoryMap()) ?? EMPTY_MAP : null;
   return {
     contextTexts: applyCategoryChains(
       [...contextTexts, ...filledSources.contextTexts],
@@ -1611,7 +1625,9 @@ function isCourseDoc(text) {
  * Prüfer für Links einer Antwort (R1-D1, Form E29). Eingaben: Kontexttexte,
  * wie das Modell sie bekam (mit Kette), System-Prompt, gespeicherte
  * Antworten des Verlaufs (nur ihr Feld sources zählt, R4-D3) und Karte.
- * Ohne Karte null (keine Absicherung, Antwort unverändert).
+ * Mit map null (Kurskarten-Modus, R1-D4) null: keine Absicherung, Antwort
+ * unverändert. Mit der leeren Karte (keine gültige Karte, 8.2.1) gelten die
+ * Regeln 2 bis 4.
  *
  * check(text, url, where) mit where = {overview, lineStart, autolink,
  * follows, intro}:
@@ -1906,6 +1922,7 @@ module.exports = {
     stripCourseCount,
     matchOverviewIntro,
     chainText,
+    EMPTY_MAP,
     courseTitleKey,
     pickCourseUrl,
     resetCache: () => {

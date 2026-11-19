@@ -269,8 +269,11 @@ async function streamChatWithForEmbed(
   // Karte (Knoten, course_links), Kontext, System-Prompt (Kundenregeln) und
   // die gespeicherten Quellen früherer Antworten (Feld sources), nicht deren
   // Text.
-  // Ohne Karte und im Kurskarten-Modus (R1-D4, NAK-9) gibt es weder Kette
-  // noch Prüfer (alles wie vorher).
+  // Ohne gültige Karte (8.2.1) fallen diese Zeilen ohne Kette weg, und der
+  // Prüfer läuft ohne Knoten (Regeln 2 bis 4: Kurs-Link als Übersichtslink
+  // und unbekannte Adressen entfernt, Kurszahl zu bekannten Adressen weg).
+  // Nur im Kurskarten-Modus (R1-D4, NAK-9) gibt es weder Kette noch Prüfer
+  // (alles wie vorher).
   const chained = await buildChainedContext(contextTexts, filledSources, {
     enabled: !cardsOn,
   });
