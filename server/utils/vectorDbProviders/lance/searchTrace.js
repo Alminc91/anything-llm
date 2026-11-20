@@ -68,7 +68,11 @@ function captureRows(rows = [], scoreKey, scoreFn, cap = CAPTURE_TOP_N) {
  * ausgewechseltem Dokument id, title, Rang vor der Stufe (rerankRank,
  * 0-basiert in der Reranker-Folge), Score, Nähe (Tage bis Start,
  * laufend = 0, Warteliste mit künftigem Beginn Tage bis Start, begonnene
- * Warteliste null), Zustand, Art und Grund.
+ * Warteliste null), Zustand, Art und Grund. `person` (Regel 2b, Kursleitung
+ * in der Anfrage) nur als Zahlen und Wahrheitswerte: `matched` (Schlüssel
+ * erkannt), `courses` (Kurse mit Schlüssel), `applied` (ein Führender trug
+ * ihn); nie der Nachname, denn er stammt aus der Anfrage, die bei Stufe
+ * "on" nur als Hash in der Spur steht (NAK-3).
  * @param {object|null} selection - Ergebnis von resolveCourseSelection
  * @param {object|null} result - Ergebnis von selectContexts (null = nicht gelaufen)
  * @param {number} poolTopK - topK, mit dem der Reranker aufgerufen wurde
@@ -103,6 +107,13 @@ function selectionBlock(selection, result, poolTopK) {
       poolTopK,
       swappedIn: result.swappedIn.slice(0, CAPTURE_TOP_N).map(swap),
       swappedOut: result.swappedOut.slice(0, CAPTURE_TOP_N).map(swap),
+      person: {
+        matched: (result.person?.keys?.length ?? 0) > 0,
+        courses: Number.isInteger(result.person?.courses)
+          ? result.person.courses
+          : 0,
+        applied: result.person?.applied === true,
+      },
     };
   } catch {
     return { active: false, reason: "trace_error", poolTopK };

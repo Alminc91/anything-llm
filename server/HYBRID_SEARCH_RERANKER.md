@@ -240,6 +240,21 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
    - Wartelisten-Kurse weichen gleich relevanten buchbaren und laufenden Kursen; untereinander
      steht der früheste künftige Beginn vorn (D7). Laufende Kurse bleiben wählbar und stehen
      hinter künftigen Kursen gleicher Relevanz.
+   - **Kursleitung in der Anfrage (8.2.1, Variante „Person“, `issues/kursauswahl-kursleitung.md`):**
+     Nennt die Suchanfrage (dieselbe, die der Reranker bekommt, also nach dem Query Rewriter) den
+     Nachnamen einer Kursleitung, die mindestens 2 Kurse im Pool hat, und hält der Führende diesen
+     Namen, sind dessen Kurse schon bis 1,5 Log-Odds unter ihm gleich relevant (statt 1,0); Spanne
+     0,02 und Boden 0,3 gelten unverändert, ein Kurs einer anderen Person unter der Schwelle 1,0
+     wird übersprungen statt die Suche zu beenden. Kursleitung = Wert der ersten Zeile
+     `Kursleitung:` im Text eines Kurses (leer oder mit Doppelpunkt: kein Name); Namen getrennt
+     durch Komma, Semikolon, Schrägstrich, `&` oder „und“, Titel (Dr., Prof., Dipl., Mag., Frau,
+     Herr, Herrn) fallen weg, ein Name braucht danach 2 Wörter, Nachname = letztes Wort. Treffer,
+     wenn die Anfrage ihn als ganzes Wort nennt (Wörter ab 4 Zeichen, bei Doppelnamen genügt ein
+     Teil ab 4 Zeichen), Groß- und Kleinschreibung egal. Anlass: Bei Kursleitungsfragen liegen
+     deren Kurse beim Reranker oft mehr als 1,0 auseinander, weil das Thema die Bewertung prägt,
+     und der nächste Kurs der Kursleitung stand nicht vorn (Messung 19.11.2026: bewertet 4,4
+     gegen 3,0; echte Kursfragen 1 von 178 betroffen, Liste gleich). Die Garantie gilt dann mit
+     1,5 statt 1,0 auf der Log-Odds-Skala.
 4. **Reihenfolge der Ausgabe:** Die Kursplätze werden in der Folge der Stufenregel belegt.
    Nicht-Kurs-Dokumente behalten ihren Platz in der Reranker-Reihenfolge der gewählten Menge.
    Bis 8.1.3 blieb die Reranker-Reihenfolge, die Stufe änderte nur die Menge. Treffer der
@@ -261,6 +276,7 @@ Sie bestimmt Menge **und Reihenfolge** der Kontexte nach der Regel „erst Relev
 | Env `COURSE_SELECTION_TIE_SPAN` | Spanne „gleich relevant“, Standard `0.02`, 0 bis 1 mit Dezimalpunkt; `0` = nur exakter Gleichstand; ungültige Werte → Standard, einmal ein Hinweis `[Auswahlstufe]` im Log |
 | Env `COURSE_SELECTION_TIE_LOGIT` | Log-Odds-Spanne „gleich relevant“ (D10), Standard `1.0`, endliche Zahl größer 0 mit Dezimalpunkt; `100` schaltet die Bedingung praktisch ab (Rückweg ohne Neubau, Stand vor 8.2-rc11); ungültige Werte (`0`, negativ, Text) → Standard, einmal ein Hinweis `[Auswahlstufe]` im Log; leer gilt als nicht gesetzt |
 | Env `COURSE_SELECTION_FLOOR` | Boden, Standard `0.3`, 0 bis 1; ungültige Werte → Standard, einmal ein Hinweis im Log |
+| Env `COURSE_SELECTION_PERSON_LOGIT` | Log-Odds-Spanne unter den Kursen einer in der Anfrage genannten Kursleitung (8.2.1), Standard `1.5`, endliche Zahl ab 0 mit Dezimalpunkt; `0` schaltet die Regel ganz ab (keine Erkennung, Ergebnis wie 8.2, Rückweg ohne Neubau); wirksam ist der größere Wert aus ihr und `COURSE_SELECTION_TIE_LOGIT` (D1); ungültige Werte (negativ, Text) → Standard, einmal ein Hinweis `[Auswahlstufe]` im Log; leer gilt als nicht gesetzt |
 | Env `COURSE_SELECTION_KEEP` / `_BAND` | seit der Stufenregel ohne Wirkung; ist eine davon gesetzt, steht einmal ein Hinweis im Log |
 
 **Unverändert (byte-gleich zum Stand ohne Stufe):** Schalter aus oder Tabelle ohne
@@ -278,11 +294,15 @@ Kandidaten und liefert so viele, wie unter den ersten `topN` zulässig waren.
 **Search-Trace:** Block `selection` mit `active`, `reason` (`off`, `no_metadata`, `degraded`,
 `few_courses`, …), `courseQuery`, `changed` (andere Menge als die Score-Top-N), `reordered`
 (andere Reihenfolge als die Reranker-Reihenfolge der gewählten Menge), `rule` (z. B.
-`stufe-span0.02-logit1-floor0.3-deckel1`), `poolTopK` und `swappedIn`/`swappedOut` je Dokument (id,
+`stufe-span0.02-logit1-floor0.3-deckel1-person1.5`), `poolTopK` und `swappedIn`/`swappedOut` je Dokument (id,
 title, rerankRank, score, naehe, state = `zukuenftig`/`laufend`/`warteliste`/`kein-kurs`, kind,
 reason = `datum` (Kurs gegen einen gleich relevanten mit zeitlichem Vorrang getauscht) oder
 `deckel` (Übersicht durch Kurs ersetzt)). Je Grund stehen gleich viele Dokumente in `swappedIn`
 wie in `swappedOut`; `swappedIn` steht in Ausgabereihenfolge.
+`person` (8.2.1) zeigt die Kursleitungs-Regel nur mit Zahlen und Wahrheitswerten: `matched`
+(Nachname einer Kursleitung mit mindestens 2 Kursen erkannt), `courses` (Kurse mit diesem
+Schlüssel), `applied` (ein Führender trug ihn). Der Nachname steht nie in der Spur, weil er aus
+der Anfrage stammt, die bei Stufe `on` nur als Hash erscheint.
 `rerank.returned` zählt im Modus `hybrid_rerank` den Pool, `final.count` die ausgelieferten Dokumente.
 `final.docs[].rerankRank` ist der Rang in der Reranker-Folge vor der Stufe (0-basiert; im Modus
 `rerank` unter den Kandidaten nach Ähnlichkeitsschwelle und Pin-Filter; ohne Stufe gleich

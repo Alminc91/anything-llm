@@ -606,7 +606,7 @@ describe("Search-Trace: trace.selection (AK-8)", () => {
         courseQuery: true,
         changed: true,
         reordered: true,
-        rule: "stufe-span0.02-logit1-floor0.3-deckel1",
+        rule: "stufe-span0.02-logit1-floor0.3-deckel1-person1.5",
         today: TODAY,
         poolTopK: 12,
       });
