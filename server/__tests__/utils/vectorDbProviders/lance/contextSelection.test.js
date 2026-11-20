@@ -36,7 +36,15 @@ const logOdds = (p) => {
   return Math.log(q / (1 - q));
 };
 const sigmoid = (x) => 1 / (1 + Math.exp(-x));
-const STANDARD = { span: SPAN, logitSpan: LOGIT, floor: FLOOR };
+// Stellgröße der Variante „Person“ (8.2.1, eigene Tests in
+// contextSelectionPerson.test.js); ohne Anfrage ohne Wirkung
+const PERSON = 1.5;
+const STANDARD = {
+  span: SPAN,
+  logitSpan: LOGIT,
+  floor: FLOOR,
+  personLogit: PERSON,
+};
 
 const kurs = (id, score, start, bookable = true) => ({
   id,
@@ -201,6 +209,7 @@ describe("Konstanten und Konfiguration", () => {
       span: 0.02,
       logitSpan: 1,
       floor: 0.3,
+      personLogit: 1.5,
     });
   });
 
@@ -220,7 +229,7 @@ describe("Konstanten und Konfiguration", () => {
         COURSE_SELECTION_TIE_SPAN: "0.05",
         COURSE_SELECTION_FLOOR: "0.5",
       })
-    ).toEqual({ span: 0.05, logitSpan: 1, floor: 0.5 });
+    ).toEqual({ span: 0.05, logitSpan: 1, floor: 0.5, personLogit: 1.5 });
     // Spanne 0 ist der Rückweg auf exakten Gleichstand (Entscheidung D1)
     expect(selectionConfig({ COURSE_SELECTION_TIE_SPAN: "0" }).span).toBe(0);
     expect(selectionConfig({ COURSE_SELECTION_TIE_SPAN: " 0.01 " }).span).toBe(
@@ -317,9 +326,11 @@ describe("Konstanten und Konfiguration", () => {
         "morgen",
       ]);
     expect(ids(run(c, 2, { span: 0 }).selected)).toEqual(["april", "morgen"]);
-    expect(run(c, 2).rule).toBe("stufe-span0.02-logit1-floor0.3-deckel1");
+    expect(run(c, 2).rule).toBe(
+      "stufe-span0.02-logit1-floor0.3-deckel1-person1.5"
+    );
     expect(run(c, 2, { span: 0.05, floor: 0.4 }).rule).toBe(
-      "stufe-span0.05-logit1-floor0.4-deckel1"
+      "stufe-span0.05-logit1-floor0.4-deckel1-person1.5"
     );
   });
 
@@ -773,7 +784,7 @@ describe("AK-2: Garantie über zufällige Pools", () => {
       expect(out.rule).toBe(
         `stufe-span${span ?? SPAN}-logit${logitSpan ?? LOGIT}-floor${
           floor ?? FLOOR
-        }-deckel1`
+        }-deckel1-person1.5`
       );
       const seq = expectStepRule(out, sorted, {
         topN,
@@ -1028,10 +1039,10 @@ describe("K-R9 (D10): gleich relevant auch auf der Log-Odds-Skala", () => {
     for (const bad of [0, -1, NaN, Infinity, "2", null])
       expect(run(c, 2, { logitSpan: bad })).toMatchObject({
         selected: [c[0], c[1]],
-        rule: "stufe-span0.02-logit1-floor0.3-deckel1",
+        rule: "stufe-span0.02-logit1-floor0.3-deckel1-person1.5",
       });
     expect(run(c, 2, { logitSpan: 1.5 }).rule).toBe(
-      "stufe-span0.02-logit1.5-floor0.3-deckel1"
+      "stufe-span0.02-logit1.5-floor0.3-deckel1-person1.5"
     );
   });
 
@@ -1068,10 +1079,17 @@ describe("K-R9 (D10): gleich relevant auch auf der Log-Odds-Skala", () => {
 
   test("Rückweg ohne Neubau: COURSE_SELECTION_TIE_LOGIT=100 ergibt den Stand vor K-R9", () => {
     const settings = selectionConfig({ COURSE_SELECTION_TIE_LOGIT: "100" });
-    expect(settings).toEqual({ span: 0.02, logitSpan: 100, floor: 0.3 });
+    expect(settings).toEqual({
+      span: 0.02,
+      logitSpan: 100,
+      floor: 0.3,
+      personLogit: 1.5,
+    });
     const yoga = pick(YOGA, settings);
     expect(ids(yoga.out.selected)).toEqual(YOGA_ALT);
-    expect(yoga.out.rule).toBe("stufe-span0.02-logit100-floor0.3-deckel1");
+    expect(yoga.out.rule).toBe(
+      "stufe-span0.02-logit100-floor0.3-deckel1-person1.5"
+    );
     expectStepRule(yoga.out, yoga.rows, {
       today: yoga.stichtag,
       logitSpan: 100,
