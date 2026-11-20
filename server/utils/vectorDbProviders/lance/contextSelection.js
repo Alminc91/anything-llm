@@ -40,6 +40,18 @@
  *    als LOGIT_SPANNE höher sind.
  *    Wählbar sind die Kurse der heutigen Top-N und Kurse mit
  *    `score ≥ BODEN`; ein Kurs unter dem Boden kommt nie von außerhalb dazu.
+ * 2b. Kursleitung (Variante „Person“, 8.2.1, Spezifikation
+ *    issues/kursauswahl-kursleitung.md): Nennt die Suchanfrage den
+ *    Nachnamen einer Kursleitung, die mindestens 2 Kurse im Pool hat, und
+ *    hält der Führende diesen Schlüssel, sind Kurse mit demselben Schlüssel
+ *    schon bis PERSON_SPANNE (Standard 1,5, wirksam mindestens LOGIT_SPANNE)
+ *    unter seinen Log-Odds gleich relevant. Spanne und Boden gelten
+ *    unverändert; ein Kurs ohne diesen Schlüssel unter der Schwelle
+ *    LOGIT_SPANNE beendet die Suche dann nicht, er wird übersprungen.
+ *    Garantie damit: Kein gewählter Kurs steht vor einem späteren oder
+ *    nicht gewählten Kurs mit mehr als SPANNE höherem Score oder mehr als
+ *    max(PERSON_SPANNE, LOGIT_SPANNE) höheren Log-Odds. Ohne Anfrage, ohne
+ *    erkannten Schlüssel oder mit PERSON_SPANNE 0 genau Regel 2.
  * 3. Klare Kursfrage (≥ 3 Kurse mit `score ≥ BODEN`, Warteliste zählt mit):
  *    höchstens 1 Nicht-Kurs-Dokument (das bestbewertete); ersetzt wird nur
  *    durch wählbare Kurse. Fehlen solche, bleiben die Nicht-Kurs-Dokumente.
@@ -66,6 +78,16 @@ const SELECTION_TIE_SPAN = 0.02;
  * großer Wert (etwa 100) schaltet die Bedingung praktisch ab.
  */
 const SELECTION_TIE_LOGIT = 1.0;
+/**
+ * Log-Odds-Spanne unter den Kursen einer in der Anfrage genannten
+ * Kursleitung (Regel 2b, Env COURSE_SELECTION_PERSON_LOGIT, 0 = aus).
+ * Wirksam ist der größere Wert aus ihr und SELECTION_TIE_LOGIT (D1).
+ */
+const SELECTION_PERSON_LOGIT = 1.5;
+/** Ein Schlüssel gilt erst, wenn so viele Kurse im Pool ihn tragen. */
+const PERSON_MIN_COURSES = 2;
+/** Mindestlänge eines Worts der Anfrage und eines Doppelnamen-Teils. */
+const PERSON_MIN_WORD = 4;
 /** Scores für die Log-Odds auf [LOGIT_CLAMP, 1 − LOGIT_CLAMP] begrenzt (endlich). */
 const LOGIT_CLAMP = 1e-7;
 /** Boden: darunter keine Datumsordnung und kein Einwechseln (Env COURSE_SELECTION_FLOOR). */
@@ -137,6 +159,7 @@ function berlinToday(now = new Date()) {
 
 const isUnitInterval = (n) => Number.isFinite(n) && n >= 0 && n <= 1;
 const isPositive = (n) => Number.isFinite(n) && n > 0;
+const isNonNegative = (n) => Number.isFinite(n) && n >= 0;
 const hasValue = (v) =>
   v !== undefined && v !== null && String(v).trim() !== "";
 
@@ -172,12 +195,19 @@ function noticeObsoleteEnv(env) {
 
 const UNIT_INTERVAL = [isUnitInterval, "eine Zahl von 0 bis 1"];
 const POSITIVE = [isPositive, "eine Zahl größer 0"];
+const NON_NEGATIVE = [isNonNegative, "eine Zahl ab 0"];
 
 /** Stellgrößen mit Env-Override: Feld, Env-Name, Standard, [Prüfung, Erwartung]. */
 const ENV_SETTINGS = Object.freeze([
   ["span", "COURSE_SELECTION_TIE_SPAN", SELECTION_TIE_SPAN, UNIT_INTERVAL],
   ["logitSpan", "COURSE_SELECTION_TIE_LOGIT", SELECTION_TIE_LOGIT, POSITIVE],
   ["floor", "COURSE_SELECTION_FLOOR", SELECTION_FLOOR, UNIT_INTERVAL],
+  [
+    "personLogit",
+    "COURSE_SELECTION_PERSON_LOGIT",
+    SELECTION_PERSON_LOGIT,
+    NON_NEGATIVE,
+  ],
 ]);
 
 let invalidNoticeShown = false;
@@ -195,12 +225,14 @@ function noticeInvalidEnv(invalid) {
 
 /**
  * Stellgrößen mit Env-Override (COURSE_SELECTION_TIE_SPAN und
- * COURSE_SELECTION_FLOOR je 0 bis 1, COURSE_SELECTION_TIE_LOGIT größer 0, mit
- * Dezimalpunkt). Ungültige Werte fallen auf den Standard zurück, ein
- * gesetzter ungültiger Wert steht einmal im Log.
+ * COURSE_SELECTION_FLOOR je 0 bis 1, COURSE_SELECTION_TIE_LOGIT größer 0,
+ * COURSE_SELECTION_PERSON_LOGIT ab 0, mit Dezimalpunkt). Ungültige Werte
+ * fallen auf den Standard zurück, ein gesetzter ungültiger Wert steht
+ * einmal im Log; leer gilt als nicht gesetzt.
  * COURSE_SELECTION_KEEP/BAND sind ohne Wirkung (einmaliger Hinweis).
  * @param {Record<string, string|undefined>} [env]
- * @returns {{span:number, logitSpan:number, floor:number}}
+ * @returns {{span:number, logitSpan:number, floor:number,
+ *   personLogit:number}}
  */
 function selectionConfig(env = process.env) {
   noticeObsoleteEnv(env);
@@ -230,6 +262,9 @@ function normalizeSettings(settings) {
     span: isUnitInterval(s.span) ? s.span : SELECTION_TIE_SPAN,
     logitSpan: isPositive(s.logitSpan) ? s.logitSpan : SELECTION_TIE_LOGIT,
     floor: isUnitInterval(s.floor) ? s.floor : SELECTION_FLOOR,
+    personLogit: isNonNegative(s.personLogit)
+      ? s.personLogit
+      : SELECTION_PERSON_LOGIT,
   };
 }
 
@@ -269,6 +304,108 @@ function classifyRow(row, today) {
   };
 }
 
+// Erkennung der Kursleitung (Regel 2b), wörtlich in der Wirkung wie die
+// Messung vom 19.11.2026 (issues/benchmark-8.2/person/messung.js). Nur feste
+// Ausdrücke, nie aus Frage- oder Dokumenttext gebaut; alle laufen linear.
+/** Erste Zeile „Kursleitung:“; der Wert endet am Zeilenende. */
+const LEADER_LINE = /Kursleitung:[ \t]*([^\n]*)/;
+/** Trenner mehrerer Kursleitungen: Komma, Semikolon, Schrägstrich, &, „und“. */
+const LEADER_SEPARATOR = /,|;|\/|&|\bund\b/;
+/** Titel, die vor dem Namen wegfallen (mit oder ohne Punkt). */
+const LEADER_TITLE = /^(dr|prof|dipl|mag|frau|herr|herrn)\.?$/;
+const WHITESPACE = /\s+/;
+/** Alles außer Buchstaben und Bindestrich (aus dem Nachnamen entfernt). */
+const NOT_NAME_CHAR = /[^\p{L}-]/gu;
+/** Trenner der Wörter der Anfrage: alles außer Buchstaben und Bindestrich. */
+const QUERY_WORD_SEPARATOR = /[^\p{L}-]+/u;
+
+/** Kleinschreibung, dann Unicode-Normalform NFKC. */
+const normalizeName = (s) => s.toLowerCase().normalize("NFKC");
+
+/**
+ * Kursleitung aus dem Text eines Kurses: der Wert der ersten Zeile
+ * „Kursleitung:“. Leer (nie die Folgezeile) oder mit Doppelpunkt → null.
+ * @param {unknown} text
+ * @returns {string|null}
+ */
+function leaderFromText(text) {
+  if (typeof text !== "string") return null;
+  const m = LEADER_LINE.exec(text);
+  if (!m) return null;
+  const value = m[1].trim();
+  return value && !value.includes(":") ? value : null;
+}
+
+/**
+ * Nachnamen einer Kursleitung: Namen je Trenner, Titel entfernt, danach
+ * mindestens 2 Wörter; Nachname = letztes Wort, nur Buchstaben und
+ * Bindestrich, klein und NFKC.
+ * @param {string} leader
+ * @returns {string[]}
+ */
+function leaderSurnames(leader) {
+  return normalizeName(leader)
+    .split(LEADER_SEPARATOR)
+    .map((name) =>
+      name
+        .trim()
+        .split(WHITESPACE)
+        .filter((word) => word && !LEADER_TITLE.test(word))
+    )
+    .filter((words) => words.length >= 2)
+    .map((words) => words[words.length - 1].replace(NOT_NAME_CHAR, ""))
+    .filter(Boolean);
+}
+
+/**
+ * Wörter der Anfrage ab PERSON_MIN_WORD Zeichen, Wörter mit Bindestrich
+ * zusätzlich je Teil.
+ * @param {string} query
+ * @returns {Set<string>}
+ */
+function queryWords(query) {
+  return new Set(
+    normalizeName(query)
+      .split(QUERY_WORD_SEPARATOR)
+      .flatMap((word) => [word, ...word.split("-")])
+      .filter((word) => word.length >= PERSON_MIN_WORD)
+  );
+}
+
+/**
+ * Schlüssel (Nachname der genannten Kursleitung) je Kandidat: nur für Kurse
+ * (`classifyRow` liefert `course: true`), deren Kursleitung einen Nachnamen
+ * trägt, den die Anfrage als ganzes Wort nennt (bei Doppelnamen genügt ein
+ * Teil ab PERSON_MIN_WORD Zeichen). Gilt nur, wenn mindestens
+ * PERSON_MIN_COURSES Kurse denselben Schlüssel tragen.
+ * @param {object[]} list - Kandidaten
+ * @param {object[]} info - classifyRow je Kandidat
+ * @param {string} query - Suchanfrage (nicht leer)
+ * @returns {(string|null)[]}
+ */
+function personKeys(list, info, query) {
+  const words = queryWords(query);
+  const keys = list.map((row, i) => {
+    if (words.size === 0 || !info[i].course) return null;
+    const leader = leaderFromText(row.text);
+    if (leader === null) return null;
+    for (const surname of leaderSurnames(leader))
+      if (
+        words.has(surname) ||
+        surname
+          .split("-")
+          .some((part) => part.length >= PERSON_MIN_WORD && words.has(part))
+      )
+        return surname;
+    return null;
+  });
+  const count = new Map();
+  for (const key of keys) if (key) count.set(key, (count.get(key) || 0) + 1);
+  return keys.map((key) =>
+    key && count.get(key) >= PERSON_MIN_COURSES ? key : null
+  );
+}
+
 /**
  * Nähe zweier Kurse derselben Stufe: künftiger Beginn (Zahl) vor begonnenem
  * (null), unter künftigen der früheste. Laufende haben alle Nähe 0.
@@ -305,12 +442,17 @@ function compareTime(a, b, info) {
  * @param {number[]} eligible
  * @param {number} slots
  * @param {object[]} info - classifyRow je Kandidat
- * @param {{span:number, logitSpan:number, floor:number}} cfg
- * @returns {number[]} gewählte Indizes in Platzfolge
+ * @param {{span:number, logitSpan:number, floor:number,
+ *   personLogit:number}} cfg
+ * @param {(string|null)[]|null} [person] - Schlüssel je Kandidat (Regel 2b)
+ * @returns {{picks:number[], personApplied:boolean}} gewählte Indizes in
+ *   Platzfolge; `personApplied`: ein Führender trug einen Schlüssel.
  */
-function stepRule(eligible, slots, info, cfg) {
+function stepRule(eligible, slots, info, cfg, person = null) {
   const rest = [...eligible];
   const picks = [];
+  const personLogit = Math.max(cfg.personLogit, cfg.logitSpan);
+  let personApplied = false;
   while (picks.length < slots && rest.length > 0) {
     const leaderScore = info[rest[0]].score;
     let best = 0;
@@ -318,27 +460,38 @@ function stepRule(eligible, slots, info, cfg) {
       const threshold = leaderScore - cfg.span - SPAN_EPSILON;
       const logitThreshold =
         logOdds(leaderScore) - cfg.logitSpan - SPAN_EPSILON;
+      const leaderKey = person ? person[rest[0]] : null;
+      const personThreshold = logOdds(leaderScore) - personLogit - SPAN_EPSILON;
+      if (leaderKey !== null) personApplied = true;
       for (let k = 1; k < rest.length; k++) {
         const score = info[rest[k]].score;
-        // `rest` ist nach Score sortiert und logOdds steigt mit dem Score:
-        // ab hier ist keiner mehr gleich relevant
+        const samePerson = leaderKey !== null && person[rest[k]] === leaderKey;
         if (
           score < threshold ||
-          logOdds(score) < logitThreshold ||
+          logOdds(score) < (samePerson ? personThreshold : logitThreshold) ||
           score < cfg.floor
-        )
+        ) {
+          // Regel 2b: weiter unten kann noch ein Kurs derselben Kursleitung
+          // gleich relevant sein, der hier gescheiterte wird übersprungen
+          if (leaderKey !== null) continue;
+          // `rest` ist nach Score sortiert und logOdds steigt mit dem Score:
+          // ab hier ist keiner mehr gleich relevant
           break;
+        }
         if (compareTime(rest[k], rest[best], info) < 0) best = k;
       }
     }
     picks.push(rest[best]);
     rest.splice(best, 1);
   }
-  return picks;
+  return { picks, personApplied };
 }
 
 const ruleLabel = (cfg) =>
-  `stufe-span${cfg.span}-logit${cfg.logitSpan}-floor${cfg.floor}-deckel${MAX_NON_COURSE}`;
+  `stufe-span${cfg.span}-logit${cfg.logitSpan}-floor${cfg.floor}-deckel${MAX_NON_COURSE}-person${cfg.personLogit}`;
+
+/** Ergebnisfeld `person`, wenn Regel 2b nicht lief oder nichts erkannte. */
+const NO_PERSON = () => ({ keys: [], courses: 0, applied: false });
 
 /**
  * Auswahlstufe: wählt höchstens topN Kontexte aus dem Reranker-Pool und
@@ -347,11 +500,15 @@ const ruleLabel = (cfg) =>
  * @param {Object} opts
  * @param {number} opts.topN - Obergrenze der Ausgabe.
  * @param {string} opts.today - ISO-Tag (Europe/Berlin).
- * @param {{span?:number, logitSpan?:number, floor?:number}} [opts.settings]
+ * @param {{span?:number, logitSpan?:number, floor?:number,
+ *   personLogit?:number}} [opts.settings]
+ * @param {string} [opts.query] - Suchanfrage, die auch der Reranker bekam
+ *   (Regel 2b); fehlt sie, ist leer oder kein String: Regel 2b ruht.
  * @returns {{selected:object[], rerankRanks:number[], active:boolean,
  *   reason:string|null, changed:boolean, reordered:boolean,
  *   courseQuery:boolean, rule:string, swappedIn:object[],
- *   swappedOut:object[]}}
+ *   swappedOut:object[], person:{keys:string[], courses:number,
+ *   applied:boolean}}}
  *   `selected` in Ausgabereihenfolge. `rerankRanks[k]`: Rang von
  *   `selected[k]` vor der Stufe, 0-basiert in der Kandidatenreihenfolge
  *   (= Reranker-Folge, K-R3); im Rückfall 0 bis topN − 1. `changed`: andere
@@ -362,8 +519,12 @@ const ruleLabel = (cfg) =>
  *   Vorrang getauscht) oder `deckel` (Nicht-Kurs-Dokument durch Kurs ersetzt).
  *   Je Grund gibt es gleich viele ein- wie ausgewechselte Dokumente;
  *   `swappedIn` in Ausgabereihenfolge, `swappedOut` in Kandidatenreihenfolge.
+ *   `person` (Regel 2b): erkannte Schlüssel (Nachnamen, in
+ *   Kandidatenreihenfolge), Zahl der Kurse mit Schlüssel und ob ein
+ *   Führender einen Schlüssel trug. Nur für die Suchspur, die daraus keine
+ *   Namen übernimmt (NAK-3).
  */
-function selectContexts(candidates, { topN, today, settings } = {}) {
+function selectContexts(candidates, { topN, today, settings, query } = {}) {
   const list = Array.isArray(candidates) ? candidates : [];
   const n = Number.isFinite(topN) && topN > 0 ? Math.floor(topN) : 0;
   const cfg = normalizeSettings(settings);
@@ -379,6 +540,7 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
     rule,
     swappedIn: [],
     swappedOut: [],
+    person: NO_PERSON(),
   });
 
   if (list.length === 0 || n === 0) return identity("empty");
@@ -407,6 +569,12 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
     .filter((i) => inBase.has(i) || info[i].score >= cfg.floor)
     .sort(byScore);
 
+  // Regel 2b: Schlüssel nur mit Anfrage und Stellgröße größer 0
+  const person =
+    cfg.personLogit > 0 && typeof query === "string" && query.trim() !== ""
+      ? personKeys(list, info, query)
+      : null;
+
   const strongCourses = courses.filter(
     (i) => info[i].score >= cfg.floor
   ).length;
@@ -427,7 +595,13 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
 
   // Nicht-Kurs-Dokumente: die bestplatzierten (Teilmenge der Basis).
   const others = all.filter((i) => !isScoredCourse(i)).slice(0, otherSlots);
-  const picks = stepRule(eligible, courseSlots, info, cfg);
+  const { picks, personApplied } = stepRule(
+    eligible,
+    courseSlots,
+    info,
+    cfg,
+    person
+  );
 
   // Ausgabe: Nicht-Kurs-Dokumente auf ihrem Platz der Kandidatenreihenfolge,
   // die Kursplätze in der Folge der Stufenregel.
@@ -474,12 +648,20 @@ function selectContexts(candidates, { topN, today, settings } = {}) {
     rule,
     swappedIn,
     swappedOut,
+    person: person
+      ? {
+          keys: [...new Set(person.filter(Boolean))],
+          courses: person.filter(Boolean).length,
+          applied: personApplied,
+        }
+      : NO_PERSON(),
   };
 }
 
 module.exports = {
   SELECTION_TIE_SPAN,
   SELECTION_TIE_LOGIT,
+  SELECTION_PERSON_LOGIT,
   SELECTION_FLOOR,
   SELECTION_POOL_MIN,
   COURSE_QUERY_MIN,

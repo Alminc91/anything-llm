@@ -387,6 +387,8 @@ class LanceDb extends VectorDatabase {
             topN: todaysCount,
             today: selection.today,
             settings: selection.settings,
+            // dieselbe Anfrage wie der Reranker (Kursleitung, Regel 2b, D2)
+            query,
           });
           chosen = selectionResult.selected;
         } else {
@@ -1019,6 +1021,8 @@ class LanceDb extends VectorDatabase {
           topN,
           today: selection.today,
           settings: selection.settings,
+          // dieselbe Anfrage wie der Reranker (Kursleitung, Regel 2b, D2)
+          query,
         })
       : null;
     const finalItems = selectionResult ? selectionResult.selected : ordered;
@@ -1505,7 +1509,8 @@ class LanceDb extends VectorDatabase {
    * (= Verhalten wie ohne Stufe).
    * @param {string} namespace
    * @returns {Promise<{enabled:boolean, reason:string|null, today?:string,
-   *   settings?:{span:number, logitSpan:number, floor:number}}>}
+   *   settings?:{span:number, logitSpan:number, floor:number,
+   *   personLogit:number}}>}
    */
   async resolveCourseSelection(namespace) {
     try {
