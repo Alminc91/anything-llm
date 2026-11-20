@@ -1,0 +1,5739 @@
+{
+  "quelle": "issues/benchmark-8.2/person/messung.js (Variante p1.5 und d10), nur Demodaten: Satz N (pools_person.json, fragen_person.json) und Satz T (pools_testset_v1_text.json, Fragen K5_leitung mit Schlüssel sowie 09, 10, 11, 19 ohne). Je Frage die 12 besten nach Score, Kurstext gekürzt auf die erste Zeile „Kursleitung:“ (bei leerem Wert mit Folgezeile). p15 und d10: ids der Auswahl (topN 4), gerechnet mit dem Code der Messung.",
+  "faelle": [
+    {
+      "id": "T-K5_leitung-01",
+      "frage": "Welche Kurse gibt Wolfgang Ehlers?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 8, 5, 10],
+      "d10": [0, 8, 5, 10],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998643398284912,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9979521632194519,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Thomas DornKurs-Nr. 262-5903"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9967984557151794,
+          "start_date": "2028-04-03",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9965004920959473,
+          "start_date": "2026-10-05",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9962753057479858,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9961037635803223,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9942262768745422,
+          "start_date": "2028-05-23",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9931489825248718,
+          "start_date": "2028-06-01",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9930738210678101,
+          "start_date": "2027-01-12",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9928483963012695,
+          "start_date": "2028-07-05",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.992352306842804,
+          "start_date": "2027-04-29",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9917649626731873,
+          "start_date": "2027-06-16",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-02",
+      "frage": "Welche Kurse gibt Heinrich Huber?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 5, 8, 7],
+      "d10": [0, 5, 8, 7],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999383687973022,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.998276948928833,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5107"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9976644515991211,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5107"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9932165741920471,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.990852415561676,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.989935576915741,
+          "start_date": "2027-01-09",
+          "bookable": true,
+          "text": "Kursleitung: Heinrich Huber"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9868423342704773,
+          "start_date": "2026-09-21",
+          "bookable": true,
+          "text": "Kursleitung: Heinrich Huber"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9866703152656555,
+          "start_date": "2027-02-03",
+          "bookable": true,
+          "text": "Kursleitung: Heinrich Huber"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9859824776649475,
+          "start_date": "2027-02-01",
+          "bookable": true,
+          "text": "Kursleitung: Heinrich Huber"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.02209671400487423,
+          "start_date": "2026-09-23",
+          "bookable": true,
+          "text": "Kursleitung: Erich Otterhof"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.02087683603167534,
+          "start_date": "2027-04-26",
+          "bookable": true,
+          "text": "Kursleitung: Lisa Engelmann"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.019800687208771706,
+          "start_date": "2026-12-07",
+          "bookable": true,
+          "text": "Kursleitung: Lisa Engelmann"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-03",
+      "frage": "Welche Kurse gibt Manuela Blumenroth?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 6, 2, 1],
+      "d10": [0, 6, 2, 1],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999605417251587,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9984928369522095,
+          "start_date": "2027-02-08",
+          "bookable": true,
+          "text": "Kursleitung: Manuela Blumenroth"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9982782602310181,
+          "start_date": "2026-11-25",
+          "bookable": true,
+          "text": "Kursleitung: Manuela Blumenroth"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9979881048202515,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Manuela Blumenroth"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.997811496257782,
+          "start_date": "2026-09-21",
+          "bookable": true,
+          "text": "Kursleitung: Manuela Blumenroth"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9969679713249207,
+          "start_date": "2027-04-24",
+          "bookable": true,
+          "text": "Kursleitung: Manuela Blumenroth"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.996704638004303,
+          "start_date": "2026-11-21",
+          "bookable": true,
+          "text": "Kursleitung: Manuela Blumenroth"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9961289167404175,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9958055019378662,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sabine SauerKurs-Nr. 262-5702"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.013373241759836674,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.011419253423810005,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.010019330307841301,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-04",
+      "frage": "Welche Kurse gibt Susanne Kurmann-Niedermeier?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 11, 2, 7],
+      "d10": [0, 11, 2, 7],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999616146087646,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9986822009086609,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9981716871261597,
+          "start_date": "2027-01-11",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9980725049972534,
+          "start_date": "2027-06-14",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9975753426551819,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia WeberKurs-Nr. 262-4C08"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9973560571670532,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9968670010566711,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5107"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9967817068099976,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9964939951896667,
+          "start_date": "2027-05-01",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9964476823806763,
+          "start_date": "2027-04-22",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9962555170059204,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber, Barbara DulmerKurs-Nr. 271-5131"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9962309002876282,
+          "start_date": "2026-12-12",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-05",
+      "frage": "Welche Kurse gibt Martin Mendel?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 8, 4, 5],
+      "d10": [0, 4, 3, 1],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999439716339111,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9963472485542297,
+          "start_date": "2027-02-02",
+          "bookable": false,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9955136179924011,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia WeberKurs-Nr. 262-4C08"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9929677248001099,
+          "start_date": "2027-06-19",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.991981029510498,
+          "start_date": "2027-01-16",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9886464476585388,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9884511232376099,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Robert Brunner, Martin MendelKurs-Nr. 262-2001"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9872877597808838,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9870135188102722,
+          "start_date": "2026-12-02",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9766770601272583,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.025502000004053116,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.023302562534809113,
+          "start_date": "2027-02-17",
+          "bookable": true,
+          "text": "Kursleitung: Martina Vogel"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-06",
+      "frage": "Welche Kurse gibt Sabine Sauer?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 3, 5, 4],
+      "d10": [0, 3, 5, 4],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999566078186035,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9992326498031616,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sabine SauerKurs-Nr. 262-5702"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9951209425926208,
+          "start_date": "2027-04-29",
+          "bookable": true,
+          "text": "Kursleitung: Sabine Sauer"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9942096471786499,
+          "start_date": "2026-11-19",
+          "bookable": true,
+          "text": "Kursleitung: Sabine Sauer"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9910919070243835,
+          "start_date": "2027-04-24",
+          "bookable": true,
+          "text": "Kursleitung: Sabine Sauer"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9907597303390503,
+          "start_date": "2027-01-29",
+          "bookable": true,
+          "text": "Kursleitung: Sabine Sauer"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9858972430229187,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.024943236261606216,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.016176236793398857,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.013103215023875237,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.011571111157536507,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.011567087844014168,
+          "start_date": "2027-03-15",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-07",
+      "frage": "Welche Kurse gibt Paul Uttermann?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 2, 4, 1],
+      "d10": [0, 2, 4, 1],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999172687530518,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9971200227737427,
+          "start_date": "2027-03-29",
+          "bookable": true,
+          "text": "Kursleitung: Paul Uttermann"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9967387318611145,
+          "start_date": "2026-11-16",
+          "bookable": true,
+          "text": "Kursleitung: Paul Uttermann"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9959663152694702,
+          "start_date": "2028-05-01",
+          "bookable": true,
+          "text": "Kursleitung: Paul Uttermann"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9942217469215393,
+          "start_date": "2027-02-09",
+          "bookable": true,
+          "text": "Kursleitung: Paul Uttermann"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9912241697311401,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.758577823638916,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.6410656571388245,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.3860197067260742,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.35049474239349365,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.18987850844860077,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Paul LehmannKurs-Nr. 262-2204"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.05905744433403015,
+          "start_date": "2027-01-20",
+          "bookable": true,
+          "text": "Kursleitung: Paul Lehmann"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-08",
+      "frage": "Welche Kurse gibt Edeltraut Manninger?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 5, 6, 2],
+      "d10": [0, 5, 6, 2],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.999953031539917,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9950789213180542,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 271-4802"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.99468994140625,
+          "start_date": "2027-02-01",
+          "bookable": true,
+          "text": "Kursleitung: Edeltraut Manninger"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9927045106887817,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Edeltraut Manninger"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9923568964004517,
+          "start_date": "2027-06-14",
+          "bookable": true,
+          "text": "Kursleitung: Edeltraut Manninger"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9914987683296204,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Edeltraut Manninger"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9908039569854736,
+          "start_date": "2027-01-11",
+          "bookable": true,
+          "text": "Kursleitung: Edeltraut Manninger"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9865610003471375,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Ulli DurstlerKurs-Nr. 262-3103"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.018370743840932846,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.014652146026492119,
+          "start_date": "2027-02-10",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.014559128321707249,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.013810313306748867,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-09",
+      "frage": "Welche Kurse gibt Lisa Kerstgens?",
+      "heute": "2026-11-16",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.10508401691913605,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.04522720351815224,
+          "start_date": "2027-04-26",
+          "bookable": true,
+          "text": "Kursleitung: Lisa Engelmann"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.03416217491030693,
+          "start_date": "2026-12-07",
+          "bookable": true,
+          "text": "Kursleitung: Lisa Engelmann"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.015632793307304382,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.01471441425383091,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.012809239327907562,
+          "start_date": "2027-03-23",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Springl"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.010416829027235508,
+          "start_date": "2026-11-03",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Springl"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.00880446471273899,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: noch nicht bekannt"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.008558056317269802,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.008466793224215508,
+          "start_date": "2026-10-05",
+          "bookable": true,
+          "text": "Kursleitung: Antonia Zürner"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.008000094443559647,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.007936766371130943,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-10",
+      "frage": "Welche Kurse gibt Hermine Clemens?",
+      "heute": "2026-11-16",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999213218688965,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9958677291870117,
+          "start_date": "2027-02-12",
+          "bookable": true,
+          "text": "Kursleitung: Hermine Clemens"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9880405068397522,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.016990739852190018,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: noch nicht bekannt"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.016896812245249748,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.015741661190986633,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.013342305086553097,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.013132303953170776,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.011374779976904392,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.010464097373187542,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.008540688082575798,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.006549312267452478,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-11",
+      "frage": "Welche Kurse gibt Peter Laue?",
+      "heute": "2026-11-16",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.999943733215332,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9945076107978821,
+          "start_date": "2026-12-17",
+          "bookable": true,
+          "text": "Kursleitung: Peter Laue"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.019081836566329002,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Monika Schick"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.01590419001877308,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.015070476569235325,
+          "start_date": "2027-03-23",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Springl"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.014523698948323727,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: noch nicht bekannt"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.013411417603492737,
+          "start_date": "2027-03-05",
+          "bookable": true,
+          "text": "Kursleitung: Dr. Dieter Lainer"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.013309081085026264,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.013187963515520096,
+          "start_date": "2026-11-03",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Springl"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.012732809409499168,
+          "start_date": "2026-10-19",
+          "bookable": true,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.01254755537956953,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.01220687385648489,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-12",
+      "frage": "Welche Kurse gibt Lorenz Schleibinger?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 1, 3, 2],
+      "d10": [0, 1, 3, 2],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999552965164185,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.989137589931488,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia WeberKurs-Nr. 262-4C08"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9877681136131287,
+          "start_date": "2027-06-16",
+          "bookable": true,
+          "text": "Kursleitung: Lorenz Schleibinger"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9862368106842041,
+          "start_date": "2027-01-20",
+          "bookable": true,
+          "text": "Kursleitung: Lorenz Schleibinger"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.02173883467912674,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Monika Schick"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.01989503763616085,
+          "start_date": "2026-09-23",
+          "bookable": true,
+          "text": "Kursleitung: Erich Otterhof"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.01788143441081047,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.01481239590793848,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.014680806547403336,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: noch nicht bekannt"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.014516684226691723,
+          "start_date": "2026-10-19",
+          "bookable": true,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.013757399283349514,
+          "start_date": "2027-03-23",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Springl"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.012288603000342846,
+          "start_date": "2027-02-02",
+          "bookable": true,
+          "text": "Kursleitung: Hubert Weissmann"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-13",
+      "frage": "Ich suche Kurse von Uttermann.",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 2, 4, 1],
+      "d10": [0, 2, 4, 1],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9994906187057495,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9909568428993225,
+          "start_date": "2027-03-29",
+          "bookable": true,
+          "text": "Kursleitung: Paul Uttermann"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9907019138336182,
+          "start_date": "2026-11-16",
+          "bookable": true,
+          "text": "Kursleitung: Paul Uttermann"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9886658191680908,
+          "start_date": "2028-05-01",
+          "bookable": true,
+          "text": "Kursleitung: Paul Uttermann"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9868434071540833,
+          "start_date": "2027-02-09",
+          "bookable": true,
+          "text": "Kursleitung: Paul Uttermann"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.7434500455856323,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.09885577857494354,
+          "start_date": "2027-03-05",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.09846235066652298,
+          "start_date": "2026-10-09",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.04591156914830208,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Paul LehmannKurs-Nr. 262-2204"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.04277804493904114,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.0359208807349205,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.03426298126578331,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-14",
+      "frage": "Ich suche Kurse von Kurmann-Niedermeier.",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 11, 2, 8],
+      "d10": [0, 2, 4, 1],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998037219047546,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9983314871788025,
+          "start_date": "2027-06-14",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9983110427856445,
+          "start_date": "2027-01-11",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9981100559234619,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9973517656326294,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9950093030929565,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9949690699577332,
+          "start_date": "2027-06-18",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.994857668876648,
+          "start_date": "2027-05-05",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9944379329681396,
+          "start_date": "2027-01-22",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9938733577728271,
+          "start_date": "2027-04-22",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.993427038192749,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia WeberKurs-Nr. 262-4C08"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9928304553031921,
+          "start_date": "2026-11-19",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-15",
+      "frage": "Ich suche Kurse von Rauten.",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 4, 2, 3],
+      "d10": [0, 2, 1, 4],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.998327910900116,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9947217702865601,
+          "start_date": "2027-07-12",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9944928884506226,
+          "start_date": "2027-01-11",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9854517579078674,
+          "start_date": "2027-04-23",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9846875071525574,
+          "start_date": "2026-12-04",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.8201490044593811,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Monika Schick"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.5755967497825623,
+          "start_date": "2027-02-10",
+          "bookable": true,
+          "text": "Kursleitung: Monika Schick"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.5198767781257629,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.4800278842449188,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.1993195116519928,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Paul LehmannKurs-Nr. 262-2204"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.13318295776844025,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sonja MichelbauerKurs-Nr. 262-2501"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.1026758924126625,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-16",
+      "frage": "Ich suche Kurse von Schmidt.",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 4, 6, 3],
+      "d10": [0, 4, 6, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.998654842376709,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9962608218193054,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9883856773376465,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9868353605270386,
+          "start_date": "2027-02-10",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.984815239906311,
+          "start_date": "2026-11-17",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9835724234580994,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9818082451820374,
+          "start_date": "2027-02-04",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9792942404747009,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Paul LehmannKurs-Nr. 262-2204"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.05001359432935715,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.03989511728286743,
+          "start_date": "2027-02-10",
+          "bookable": true,
+          "text": "Kursleitung: Monika Schick"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.035032764077186584,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.026984460651874542,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-17",
+      "frage": "Ich suche Kurse von Miyagi.",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 10, 8, 4],
+      "d10": [0, 10, 8, 4],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9983184337615967,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9951902627944946,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Ulli DurstlerKurs-Nr. 262-3103"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9883968234062195,
+          "start_date": "2027-04-19",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9848243594169617,
+          "start_date": "2027-03-15",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9838773608207703,
+          "start_date": "2027-03-11",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9826616644859314,
+          "start_date": "2027-04-20",
+          "bookable": false,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9826023578643799,
+          "start_date": "2027-03-15",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9822273850440979,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9821023941040039,
+          "start_date": "2027-03-05",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9797048568725586,
+          "start_date": "2027-02-12",
+          "bookable": false,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9795880317687988,
+          "start_date": "2026-11-17",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9577006101608276,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-18",
+      "frage": "Ich suche Kurse von Mendel.",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 1, 3, 2],
+      "d10": [0, 1, 3, 2],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9994055032730103,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9981005787849426,
+          "start_date": "2027-02-02",
+          "bookable": false,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9873881936073303,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.985715925693512,
+          "start_date": "2026-12-02",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9783421754837036,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9718044400215149,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9689291715621948,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.05536342039704323,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.046965330839157104,
+          "start_date": "2026-12-07",
+          "bookable": true,
+          "text": "Kursleitung: Lisa Engelmann"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.04292464628815651,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: noch nicht bekannt"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.037674177438020706,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.037152476608753204,
+          "start_date": "2027-04-26",
+          "bookable": true,
+          "text": "Kursleitung: Lisa Engelmann"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-19",
+      "frage": "Ich suche Kurse von Schulze.",
+      "heute": "2026-11-16",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9992045760154724,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9674239754676819,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.544093668460846,
+          "start_date": "2027-02-10",
+          "bookable": true,
+          "text": "Kursleitung: Monika Schick"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.19293881952762604,
+          "start_date": "2027-06-19",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.1743755042552948,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.17051731050014496,
+          "start_date": "2027-01-16",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.15857265889644623,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.15748809278011322,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.11580326408147812,
+          "start_date": "2028-07-08",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.0867387130856514,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.07589863240718842,
+          "start_date": "2026-09-23",
+          "bookable": true,
+          "text": "Kursleitung: Erich Otterhof"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.06244082376360893,
+          "start_date": "2026-11-16",
+          "bookable": true,
+          "text": "Kursleitung: Anna Geiger"
+        }
+      ]
+    },
+    {
+      "id": "T-K5_leitung-20",
+      "frage": "Ich suche Kurse von Ehlers.",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 2, 1, 3],
+      "d10": [0, 2, 1, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9966740608215332,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9851942658424377,
+          "start_date": "2028-05-23",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9787818789482117,
+          "start_date": "2026-11-17",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Ehlers"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.7782303094863892,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jürgen Veigl, Werner BrücknerKurs-Nr. 262-4606B"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.19181275367736816,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.10596750676631927,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.043243326246738434,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.037574321031570435,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.0344684012234211,
+          "start_date": "2027-03-02",
+          "bookable": true,
+          "text": "Kursleitung: Dr. Dieter Lainer"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.03276262432336807,
+          "start_date": "2028-07-08",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.027934769168496132,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.025539936497807503,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        }
+      ]
+    },
+    {
+      "id": "T-K10_kombi-01",
+      "frage": "Welche Spanischkurse gibt Klaus Zobel?",
+      "heute": "2026-11-16",
+      "greift": true,
+      "p15": [0, 1, 5, 3],
+      "d10": [0, 1, 5, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999184608459473,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9996262788772583,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.999593198299408,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Nadia TaschmannKurs-Nr. 262-4M12"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9995914101600647,
+          "start_date": "2027-02-09",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9995670914649963,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9993218183517456,
+          "start_date": "2027-02-03",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9992082715034485,
+          "start_date": "2026-09-16",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9979071617126465,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Giovanni MorettiKurs-Nr. 271-4M20"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9965348243713379,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 271-4802"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9964229464530945,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9962924122810364,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 271-4802B"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9739570021629333,
+          "start_date": "2027-04-26",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        }
+      ]
+    },
+    {
+      "id": "N-P01",
+      "frage": "Welche Kurse gibt Andrea Lex?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 11, 9, 10],
+      "d10": [0, 11, 9, 10],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998441934585571,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9981868863105774,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 271-4802B"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9974888563156128,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9974339604377747,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9968255758285522,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Robert Brunner, Martin MendelKurs-Nr. 262-2001"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9961035251617432,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Ulli DurstlerKurs-Nr. 262-3103"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9956654906272888,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sonja MichelbauerKurs-Nr. 262-2501"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9943352341651917,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.993294894695282,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9925566911697388,
+          "start_date": "2027-03-12",
+          "bookable": true,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9922569990158081,
+          "start_date": "2026-09-14",
+          "bookable": false,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9910677075386047,
+          "start_date": "2027-02-11",
+          "bookable": true,
+          "text": "Kursleitung: Andrea Lex"
+        }
+      ]
+    },
+    {
+      "id": "N-P02",
+      "frage": "Was unterrichtet Herr Moretti?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 4, 2, 3],
+      "d10": [0, 4, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9966624975204468,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.8687319755554199,
+          "start_date": "2027-06-15",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.8624446988105774,
+          "start_date": "2027-01-05",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.861499547958374,
+          "start_date": "2027-01-19",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.8487337827682495,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.8484174013137817,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.8160766959190369,
+          "start_date": "2027-05-25",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.5019981265068054,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.39201903343200684,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.006853916682302952,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.005429278127849102,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.0049912394024431705,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "N-P03",
+      "frage": "Hat Frau Kurmann-Niedermeier noch freie Kurse?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9907355904579163,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9248082041740417,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sylvia Ladek, Ulli DurstlerKurs-Nr. 262-5305"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.889938473701477,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber, Barbara DulmerKurs-Nr. 271-5131"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.8787195086479187,
+          "start_date": "2027-01-11",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.8752385377883911,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.8686489462852478,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.8643681406974792,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jürgen Veigl, Werner Brückner, Paul UttermannKurs-Nr. 262-4605"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.8631983399391174,
+          "start_date": "2027-06-14",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.8563079237937927,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Ulli DurstlerKurs-Nr. 262-4506"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.8351271748542786,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5107"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.8329005837440491,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia WeberKurs-Nr. 262-4C08"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.8137867450714111,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 262-3211"
+        }
+      ]
+    },
+    {
+      "id": "N-P04",
+      "frage": "ich suche kurse von rita cleber",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 3, 11, 10],
+      "d10": [0, 3, 1, 11],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9996711015701294,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9976910352706909,
+          "start_date": "2027-02-09",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9969627261161804,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber, Ulrich DornKurs-Nr. 262-6711"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9961218237876892,
+          "start_date": "2026-11-23",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9944806098937988,
+          "start_date": "2027-04-19",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.993613064289093,
+          "start_date": "2026-11-16",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9933499693870544,
+          "start_date": "2027-04-19",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9933353662490845,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9920295476913452,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9914594888687134,
+          "start_date": "2027-06-14",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9914236664772034,
+          "start_date": "2027-01-11",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9912928938865662,
+          "start_date": "2026-11-30",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        }
+      ]
+    },
+    {
+      "id": "N-P05",
+      "frage": "Welche Kurse hat Keisuke Miyagi?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 5, 6, 2],
+      "d10": [0, 5, 6, 2],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998051524162292,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9978680610656738,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9920935034751892,
+          "start_date": "2027-03-15",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9916069507598877,
+          "start_date": "2026-11-17",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9905266761779785,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Ulli DurstlerKurs-Nr. 262-3103"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.989425539970398,
+          "start_date": "2027-03-05",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9890419840812683,
+          "start_date": "2027-03-11",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.987666130065918,
+          "start_date": "2027-04-20",
+          "bookable": false,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9869425296783447,
+          "start_date": "2027-02-12",
+          "bookable": false,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9781582355499268,
+          "start_date": "2027-03-15",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9765591621398926,
+          "start_date": "2026-11-16",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9744700789451599,
+          "start_date": "2027-04-19",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        }
+      ]
+    },
+    {
+      "id": "N-P06",
+      "frage": "Was bietet Herr Zobel an?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9310457706451416,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.17385543882846832,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.0221299696713686,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.020349927246570587,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.013904052786529064,
+          "start_date": "2027-04-21",
+          "bookable": false,
+          "text": "Kursleitung: Michael Deutsch"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.013501210138201714,
+          "start_date": "2027-04-29",
+          "bookable": true,
+          "text": "Kursleitung: Sabine Sauer"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.012462716549634933,
+          "start_date": "2026-11-19",
+          "bookable": true,
+          "text": "Kursleitung: Sabine Sauer"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.012290257960557938,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.010141061618924141,
+          "start_date": "2027-02-12",
+          "bookable": true,
+          "text": "Kursleitung: Hermine Clemens"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.008800995536148548,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.0077115753665566444,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.007576453033834696,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "N-P07",
+      "frage": "Gibt es Kurse bei Helmut Misof?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 11, 10, 6],
+      "d10": [0, 6, 8, 9],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9997532963752747,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9979848861694336,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: noch nicht bekanntKurs-Nr. 262-4K21"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9978815913200378,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9977878332138062,
+          "start_date": "2028-03-17",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9976803064346313,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9975449442863464,
+          "start_date": "2026-09-25",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9968400001525879,
+          "start_date": "2027-02-12",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9964514970779419,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.995794415473938,
+          "start_date": "2027-02-20",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9940704703330994,
+          "start_date": "2027-06-14",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9939396381378174,
+          "start_date": "2027-01-26",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9939025640487671,
+          "start_date": "2027-01-11",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        }
+      ]
+    },
+    {
+      "id": "N-P08",
+      "frage": "Welche Kurse leitet Sibylle Rauten?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 7, 9, 5],
+      "d10": [0, 7, 9, 5],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998509883880615,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9893039464950562,
+          "start_date": "2027-01-11",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9873666763305664,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5122"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9856633543968201,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sylvia Ladek, Ulli DurstlerKurs-Nr. 262-5305"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9851690530776978,
+          "start_date": "2027-04-23",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.983812689781189,
+          "start_date": "2026-12-04",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9809492230415344,
+          "start_date": "2027-04-28",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9789907932281494,
+          "start_date": "2026-12-02",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9772216081619263,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber, Barbara DulmerKurs-Nr. 271-5131"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9762218594551086,
+          "start_date": "2026-12-02",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9754796624183655,
+          "start_date": "2027-01-16",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9687503576278687,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jürgen Veigl, Werner Brückner, Paul UttermannKurs-Nr. 262-4605"
+        }
+      ]
+    },
+    {
+      "id": "N-P09",
+      "frage": "Ich suche Kurse von Werner Schmidt.",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 9, 11, 8],
+      "d10": [0, 9, 11, 8],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998868703842163,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9992650151252747,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9990381002426147,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5122"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.997962474822998,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.997269332408905,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Paul LehmannKurs-Nr. 262-2204"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.995827853679657,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9950774312019348,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sonja MichelbauerKurs-Nr. 262-2501"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9919034838676453,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9917444586753845,
+          "start_date": "2027-02-10",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9916521906852722,
+          "start_date": "2026-11-19",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9908756017684937,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9908472299575806,
+          "start_date": "2026-11-24",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        }
+      ]
+    },
+    {
+      "id": "N-P10",
+      "frage": "hannelore barthel kurse",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 2, 4, 1],
+      "d10": [0, 2, 4, 1],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999490976333618,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9975411891937256,
+          "start_date": "2027-04-19",
+          "bookable": true,
+          "text": "Kursleitung: Hannelore Barthel"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9974262118339539,
+          "start_date": "2026-11-23",
+          "bookable": true,
+          "text": "Kursleitung: Hannelore Barthel"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9940122961997986,
+          "start_date": "2027-04-28",
+          "bookable": true,
+          "text": "Kursleitung: Hannelore Barthel"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9940094947814941,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Hannelore Barthel"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9929429888725281,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sylvia Ladek, Ulli DurstlerKurs-Nr. 262-5305"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9897566437721252,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Herbert GrabnerKurs-Nr. 271-4901"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9647842645645142,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sabine SauerKurs-Nr. 262-5702"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9576984643936157,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9561136960983276,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.8859457969665527,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.039166409522295,
+          "start_date": "2026-09-30",
+          "bookable": true,
+          "text": "Kursleitung: Johanna Laufer"
+        }
+      ]
+    },
+    {
+      "id": "N-P11",
+      "frage": "Hat Frau Michelbauer noch Plätze in ihren Kursen?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9817489385604858,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9311562776565552,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sonja MichelbauerKurs-Nr. 262-2501"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.898945689201355,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sonja MichelbauerKurs-Nr. 262-2501"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.880010187625885,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5115"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.804848849773407,
+          "start_date": "2027-03-05",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.6361967921257019,
+          "start_date": "2027-01-16",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.5504248738288879,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.12773674726486206,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Ulli DurstlerKurs-Nr. 262-3103"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.03138327598571777,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.030421201139688492,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.02608933113515377,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich Otterhof"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.007421639282256365,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "N-P12",
+      "frage": "Bei welchen Kursen ist Martin Mendel die Kursleitung?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 3, 2, 1],
+      "d10": [0, 3, 2, 1],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998703002929688,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9961912631988525,
+          "start_date": "2027-02-02",
+          "bookable": false,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9919390082359314,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9902987480163574,
+          "start_date": "2027-02-10",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9890902638435364,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Robert Brunner, Martin MendelKurs-Nr. 262-2001"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9801515936851501,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9751198291778564,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.01337314210832119,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.009421263821423054,
+          "start_date": "2026-10-05",
+          "bookable": true,
+          "text": "Kursleitung: Hubert Büttner"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.008144368417561054,
+          "start_date": "2027-04-26",
+          "bookable": true,
+          "text": "Kursleitung: Lisa Engelmann"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.008119165897369385,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.00811110157519579,
+          "start_date": "2026-12-07",
+          "bookable": true,
+          "text": "Kursleitung: Lisa Engelmann"
+        }
+      ]
+    },
+    {
+      "id": "N-P13",
+      "frage": "Gibt es bei Herrn Moretti auch Griechisch?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 2, 1, 3],
+      "d10": [0, 2, 1, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9964777827262878,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9831011891365051,
+          "start_date": "2027-06-15",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9823727011680603,
+          "start_date": "2027-01-19",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9353861808776855,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia WeberKurs-Nr. 262-4C08"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.2263367921113968,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.19013278186321259,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.14262156188488007,
+          "start_date": "2027-05-25",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.03358006477355957,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.014957268722355366,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.011937346309423447,
+          "start_date": "2026-12-02",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.011799384839832783,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.011419452726840973,
+          "start_date": "2027-05-05",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        }
+      ]
+    },
+    {
+      "id": "N-P14",
+      "frage": "Hat Frau Kurmann-Niedermeier einen Windows-Kurs?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 2, 1, 5],
+      "d10": [0, 2, 1, 5],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9986189603805542,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9971953630447388,
+          "start_date": "2027-04-22",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9968996047973633,
+          "start_date": "2026-11-19",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9943180680274963,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5107"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.990754246711731,
+          "start_date": "2027-06-19",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9900413155555725,
+          "start_date": "2026-11-19",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9891945123672485,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber, Barbara DulmerKurs-Nr. 271-5131"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9891664385795593,
+          "start_date": "2027-01-16",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9886090755462646,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5107"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9882347583770752,
+          "start_date": "2027-04-29",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9768384695053101,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sylvia Ladek, Ulli DurstlerKurs-Nr. 262-5305"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9709669947624207,
+          "start_date": "2027-05-01",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        }
+      ]
+    },
+    {
+      "id": "N-P15",
+      "frage": "Macht Frau Lex auch Yoga?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9909955859184265,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.980676531791687,
+          "start_date": "2027-03-05",
+          "bookable": false,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9060785174369812,
+          "start_date": "2026-09-14",
+          "bookable": false,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.8603602647781372,
+          "start_date": "2027-03-12",
+          "bookable": true,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.8247172236442566,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Ulli DurstlerKurs-Nr. 262-3103"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.8059266209602356,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.6586394309997559,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.5954741835594177,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.3897663354873657,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 262-3211"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.061220020055770874,
+          "start_date": "2027-03-15",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.05902310833334923,
+          "start_date": "2027-03-15",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.037190891802310944,
+          "start_date": "2027-04-20",
+          "bookable": false,
+          "text": "Kursleitung: Kesuke Miyagi"
+        }
+      ]
+    },
+    {
+      "id": "N-P16",
+      "frage": "Hat Rita Cleber auch einen Französischkurs?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 2, 1, 5],
+      "d10": [0, 2, 1, 5],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998592138290405,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9997439980506897,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9997093081474304,
+          "start_date": "2026-12-01",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9975670576095581,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 271-4802B"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9955382943153381,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber, Ulrich DornKurs-Nr. 262-6711"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9954144954681396,
+          "start_date": "2027-02-09",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9782465696334839,
+          "start_date": "2027-04-23",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9780163764953613,
+          "start_date": "2026-12-04",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9759085178375244,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9366827011108398,
+          "start_date": "2027-01-12",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9308376312255859,
+          "start_date": "2027-06-15",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9262083768844604,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        }
+      ]
+    },
+    {
+      "id": "N-P17",
+      "frage": "Ich suche den Kurs SAP Controlling bei Frau Cleber.",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [1, 0, 2, 7],
+      "d10": [1, 0, 2, 7],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9997727274894714,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9997658133506775,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9986854195594788,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9983135461807251,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber, Ulrich DornKurs-Nr. 262-6711"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9983031749725342,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9977140426635742,
+          "start_date": "2027-01-25",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9973606467247009,
+          "start_date": "2027-05-03",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.996724545955658,
+          "start_date": "2026-11-30",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.992694616317749,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9833289384841919,
+          "start_date": "2027-04-19",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9812411665916443,
+          "start_date": "2026-11-16",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.978873610496521,
+          "start_date": "2027-04-26",
+          "bookable": true,
+          "text": "Kursleitung: Rita Cleber"
+        }
+      ]
+    },
+    {
+      "id": "N-P18",
+      "frage": "Hat Herr Zobel einen Abendkurs Spanisch?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [1, 5, 3, 2],
+      "d10": [1, 5, 3, 2],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9993487000465393,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.999333918094635,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9992965459823608,
+          "start_date": "2027-02-09",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9991480112075806,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9990642666816711,
+          "start_date": "2026-09-16",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9989614486694336,
+          "start_date": "2027-02-03",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9972965121269226,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Nadia TaschmannKurs-Nr. 262-4M12"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9916704893112183,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Giovanni MorettiKurs-Nr. 271-4M20"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9688883423805237,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9616394639015198,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9249585270881653,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5115"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9023276567459106,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        }
+      ]
+    },
+    {
+      "id": "N-P19",
+      "frage": "Gibt es bei Moretti Italienisch am Vormittag?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9994687438011169,
+          "start_date": "2027-01-05",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9993795156478882,
+          "start_date": "2027-05-25",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9989237189292908,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9923345446586609,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9893248677253723,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9710257649421692,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.8313799500465393,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Giovanni MorettiKurs-Nr. 271-4M20"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.7236722707748413,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Nadia TaschmannKurs-Nr. 262-4M12"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.5282109379768372,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia WeberKurs-Nr. 262-4C08"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.2519541382789612,
+          "start_date": "2027-03-02",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.16848209500312805,
+          "start_date": "2027-01-21",
+          "bookable": true,
+          "text": "Kursleitung: Stephan Wein"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.15159448981285095,
+          "start_date": "2027-06-15",
+          "bookable": true,
+          "text": "Kursleitung: Stephan Wein"
+        }
+      ]
+    },
+    {
+      "id": "N-P20",
+      "frage": "Unterrichtet Herr Misof auch Schwedisch?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 2, 3, 4],
+      "d10": [0, 2, 3, 4],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9983153343200684,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9977031350135803,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: noch nicht bekanntKurs-Nr. 262-4K21"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9958588480949402,
+          "start_date": "2027-01-11",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9957568049430847,
+          "start_date": "2027-01-26",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9955516457557678,
+          "start_date": "2027-06-14",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.567173421382904,
+          "start_date": "2027-03-03",
+          "bookable": true,
+          "text": "Kursleitung:  \nKategorie: Schwedisch"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.3155116140842438,
+          "start_date": "2028-03-17",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.3122783601284027,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.2500372529029846,
+          "start_date": "2027-02-12",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.16166047751903534,
+          "start_date": "2026-09-25",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.00819383654743433,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.0044392473064363,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        }
+      ]
+    },
+    {
+      "id": "N-P21",
+      "frage": "Hat Herbert Grabner auch Italienisch?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 1, 3, 2],
+      "d10": [0, 1, 3, 2],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9995396137237549,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9994425177574158,
+          "start_date": "2027-02-10",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9990160465240479,
+          "start_date": "2026-11-16",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9990021586418152,
+          "start_date": "2027-04-19",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9971776008605957,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Herbert GrabnerKurs-Nr. 271-4901"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.993756890296936,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9849849939346313,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9660736918449402,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jürgen Veigl, Werner Brückner, Paul UttermannKurs-Nr. 262-4605"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.17424464225769043,
+          "start_date": "2028-06-05",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.17353589832782745,
+          "start_date": "2028-04-27",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.16073209047317505,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.12296947836875916,
+          "start_date": "2027-04-22",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        }
+      ]
+    },
+    {
+      "id": "N-P22",
+      "frage": "Gibt es bei Frau Taschmann Spanisch?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9942079782485962,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Nadia TaschmannKurs-Nr. 262-4M12"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9902230501174927,
+          "start_date": "2027-01-28",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9432016611099243,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9183147549629211,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.3565880358219147,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.34749773144721985,
+          "start_date": "2028-07-08",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.21819590032100677,
+          "start_date": "2027-06-19",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.19344891607761383,
+          "start_date": "2026-10-05",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.10949134826660156,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.08047998696565628,
+          "start_date": "2028-05-15",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.06756158918142319,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.06704310327768326,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        }
+      ]
+    },
+    {
+      "id": "N-P23",
+      "frage": "Ich suche den Powerpoint-Kurs von Frau Rauten.",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 1, 2, 5],
+      "d10": [0, 1, 2, 5],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9992874264717102,
+          "start_date": "2026-12-02",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9992737174034119,
+          "start_date": "2027-04-28",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9952936768531799,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9834453463554382,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9313117265701294,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hanna ÜckelKurs-Nr. 271-5203"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.8041628003120422,
+          "start_date": "2027-07-12",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.6316054463386536,
+          "start_date": "2027-03-03",
+          "bookable": true,
+          "text": "Kursleitung:  \nKategorie: EDV Kaufmännische Anwendung"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.28451216220855713,
+          "start_date": "2027-03-05",
+          "bookable": false,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.251150518655777,
+          "start_date": "2027-04-23",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.2285008430480957,
+          "start_date": "2026-12-04",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.09392472356557846,
+          "start_date": "2027-04-29",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.09021494537591934,
+          "start_date": "2027-06-19",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        }
+      ]
+    },
+    {
+      "id": "N-P24",
+      "frage": "Bietet Sylvia Ladek einen Access-Kurs an?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 7, 5, 3],
+      "d10": [0, 7, 5, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9999006986618042,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9995088577270508,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9993847608566284,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sylvia Ladek, Ulli DurstlerKurs-Nr. 262-5305"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9990410208702087,
+          "start_date": "2027-02-11",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9990277290344238,
+          "start_date": "2027-06-18",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9990022778511047,
+          "start_date": "2027-01-29",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9989307522773743,
+          "start_date": "2027-02-12",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9988334774971008,
+          "start_date": "2027-01-15",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9953794479370117,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9952541589736938,
+          "start_date": "2027-04-27",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9947987794876099,
+          "start_date": "2026-11-18",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.994531512260437,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        }
+      ]
+    },
+    {
+      "id": "N-P25",
+      "frage": "Hat Herr Schmidt einen Rhetorikkurs?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9988656044006348,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9979702830314636,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9651699662208557,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sonja MichelbauerKurs-Nr. 262-2501"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.959113597869873,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Paul LehmannKurs-Nr. 262-2204"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.8752825260162354,
+          "start_date": "2027-03-06",
+          "bookable": true,
+          "text": "Kursleitung: Engelbert Zierhofer"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.28326883912086487,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.2721710503101349,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.26202088594436646,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5122"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.23703350126743317,
+          "start_date": "2026-11-24",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.16468052566051483,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.06360585242509842,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5107"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.05775162950158119,
+          "start_date": "2027-04-29",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        }
+      ]
+    },
+    {
+      "id": "N-P26",
+      "frage": "Hat Herr Wein einen Englischkurs für den Beruf?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [2, 0, 1, 3],
+      "d10": [2, 0, 1, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9994208812713623,
+          "start_date": "2028-03-14",
+          "bookable": true,
+          "text": "Kursleitung: Stephan Wein"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9993664622306824,
+          "start_date": "2026-09-22",
+          "bookable": true,
+          "text": "Kursleitung: Stephan Wein"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.999356210231781,
+          "start_date": "2027-02-09",
+          "bookable": true,
+          "text": "Kursleitung: Stephan Wein"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9982683658599854,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9686816930770874,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jürgen Veigl, Werner BrücknerKurs-Nr. 262-4606B"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.44543904066085815,
+          "start_date": "2027-04-19",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.4142005443572998,
+          "start_date": "2028-05-15",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.393780916929245,
+          "start_date": "2026-10-05",
+          "bookable": true,
+          "text": "Kursleitung: Hubert Büttner"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.387585312128067,
+          "start_date": "2026-11-16",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.36950579285621643,
+          "start_date": "2028-05-01",
+          "bookable": true,
+          "text": "Kursleitung: Jürgen Veigl"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.3006540536880493,
+          "start_date": "2028-06-05",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.2661506235599518,
+          "start_date": "2027-03-29",
+          "bookable": true,
+          "text": "Kursleitung: Jürgen Veigl"
+        }
+      ]
+    },
+    {
+      "id": "N-P27",
+      "frage": "Gibt es bei Paul Lehmann Pantomime?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998225569725037,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9987504482269287,
+          "start_date": "2027-02-12",
+          "bookable": true,
+          "text": "Kursleitung: Paul Lehmann"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9969066977500916,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Paul LehmannKurs-Nr. 262-2204"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9823968410491943,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sonja MichelbauerKurs-Nr. 262-2501"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9002962112426758,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 262-3211"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.8453852534294128,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.11834422498941422,
+          "start_date": "2027-03-08",
+          "bookable": true,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.015040142461657524,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.010259738191962242,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.009135784581303596,
+          "start_date": "2027-03-06",
+          "bookable": true,
+          "text": "Kursleitung: Paul Lehmann"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.008850779384374619,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.006119109224528074,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "N-P28",
+      "frage": "Ich suche den Excelkurs von Frau Barthel.",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 1, 2, 4],
+      "d10": [0, 1, 2, 4],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9994637370109558,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9984087347984314,
+          "start_date": "2027-04-28",
+          "bookable": true,
+          "text": "Kursleitung: Hannelore Barthel"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9983822107315063,
+          "start_date": "2026-11-18",
+          "bookable": true,
+          "text": "Kursleitung: Hannelore Barthel"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9891459941864014,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sylvia Ladek, Ulli DurstlerKurs-Nr. 262-5305"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9748324751853943,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Hannelore Barthel"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9365894198417664,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Werner SchmidtKurs-Nr. 262-5222"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.6476508378982544,
+          "start_date": "2027-02-01",
+          "bookable": true,
+          "text": "Kursleitung: Gisela Albrecht"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.44858261942863464,
+          "start_date": "2027-04-29",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.44474661350250244,
+          "start_date": "2027-01-16",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.4395328164100647,
+          "start_date": "2027-06-19",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.4343608617782593,
+          "start_date": "2026-11-19",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.43178585171699524,
+          "start_date": "2027-04-27",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        }
+      ]
+    },
+    {
+      "id": "N-P29",
+      "frage": "Bietet Frau Michelbauer auch Babyschwimmen an?",
+      "heute": "2026-11-19",
+      "greift": true,
+      "p15": [0, 3, 2, 5],
+      "d10": [0, 3, 2, 5],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9832042455673218,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9784980416297913,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 262-3211"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.95990389585495,
+          "start_date": "2026-10-09",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9466665387153625,
+          "start_date": "2027-03-05",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.8990656733512878,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.8208717107772827,
+          "start_date": "2027-03-23",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Springl"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.8132562637329102,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.7822855114936829,
+          "start_date": "2026-09-21",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.768257737159729,
+          "start_date": "2026-11-03",
+          "bookable": true,
+          "text": "Kursleitung: Wolfgang Springl"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.6353107690811157,
+          "start_date": "2027-02-08",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.49110546708106995,
+          "start_date": "2027-01-16",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.3690124452114105,
+          "start_date": "2027-06-19",
+          "bookable": true,
+          "text": "Kursleitung: Sonja Michelbauer"
+        }
+      ]
+    },
+    {
+      "id": "N-P30",
+      "frage": "hat herr zobel auch griechisch?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.451640248298645,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.018644869327545166,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.01403902005404234,
+          "start_date": "2027-01-20",
+          "bookable": true,
+          "text": "Kursleitung: Lorenz Schleibinger"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.013424666598439217,
+          "start_date": "2027-06-16",
+          "bookable": true,
+          "text": "Kursleitung: Lorenz Schleibinger"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.010392599739134312,
+          "start_date": "2027-06-14",
+          "bookable": true,
+          "text": "Kursleitung: Stefan Kunz"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.010080636478960514,
+          "start_date": "2027-02-03",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.01004052348434925,
+          "start_date": "2027-01-18",
+          "bookable": true,
+          "text": "Kursleitung: Stefan Kunz"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.00994461216032505,
+          "start_date": "2027-01-19",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.009434595704078674,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Martin Mendel"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.009303132072091103,
+          "start_date": "2027-05-05",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.009223215281963348,
+          "start_date": "2027-06-18",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.009144101291894913,
+          "start_date": "2027-06-15",
+          "bookable": true,
+          "text": "Kursleitung: Giovanni Moretti"
+        }
+      ]
+    },
+    {
+      "id": "N-P31",
+      "frage": "Hat Herr Otterhof auch einen Word-Kurs?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 4, 3, 5],
+      "d10": [0, 4, 3, 5],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9983024597167969,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9766379594802856,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9609709978103638,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.8645969033241272,
+          "start_date": "2027-04-30",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.8536255955696106,
+          "start_date": "2026-12-04",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.8332920670509338,
+          "start_date": "2027-04-19",
+          "bookable": true,
+          "text": "Kursleitung: Ulli Durstler"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.8199484944343567,
+          "start_date": "2026-11-16",
+          "bookable": true,
+          "text": "Kursleitung: Ulli Durstler"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.6573352813720703,
+          "start_date": "2027-04-27",
+          "bookable": true,
+          "text": "Kursleitung: Sylvia Ladek"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.6558020710945129,
+          "start_date": "2027-07-02",
+          "bookable": true,
+          "text": "Kursleitung: Paul Ährens"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.6493964791297913,
+          "start_date": "2026-12-04",
+          "bookable": true,
+          "text": "Kursleitung: Paul Ährens"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.6082730889320374,
+          "start_date": "2026-12-04",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.5806324481964111,
+          "start_date": "2027-04-23",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        }
+      ]
+    },
+    {
+      "id": "N-P32",
+      "frage": "Hat Andrea Lex auch einen Ungarischkurs?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 10, 4, 11],
+      "d10": [0, 10, 4, 11],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9975793957710266,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9887920022010803,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea LexKurs-Nr. 271-4802B"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9674375057220459,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Ulli DurstlerKurs-Nr. 262-3103"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9653171300888062,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9556298851966858,
+          "start_date": "2026-12-01",
+          "bookable": true,
+          "text": "Kursleitung: Marta Flender"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9496641755104065,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Marta Flender"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9490419030189514,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, noch nicht bekanntKurs-Nr. 262-4621"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9471890330314636,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Sonja MichelbauerKurs-Nr. 262-2501"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9458998441696167,
+          "start_date": "2027-04-26",
+          "bookable": true,
+          "text": "Kursleitung: Marta Flender"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9419465065002441,
+          "start_date": "2027-01-20",
+          "bookable": true,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9406458139419556,
+          "start_date": "2026-11-20",
+          "bookable": true,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.937420129776001,
+          "start_date": "2026-12-07",
+          "bookable": true,
+          "text": "Kursleitung: Marta Flender"
+        }
+      ]
+    },
+    {
+      "id": "N-P33",
+      "frage": "Ich möchte Deutsch lesen und schreiben lernen. Gibt es dafür einen Kurs?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 1, 5, 2],
+      "d10": [0, 1, 5, 2],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9752354621887207,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Ulli DurstlerKurs-Nr. 262-4506"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.969683825969696,
+          "start_date": "2027-02-09",
+          "bookable": true,
+          "text": "Kursleitung: David Thaller"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9684801697731018,
+          "start_date": "2027-03-29",
+          "bookable": true,
+          "text": "Kursleitung: David Thaller"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9678605198860168,
+          "start_date": "2026-10-05",
+          "bookable": true,
+          "text": "Kursleitung: Paul Lehmann"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.967376708984375,
+          "start_date": "2027-03-01",
+          "bookable": false,
+          "text": "Kursleitung: Paul Lehmann"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.966684103012085,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Monika Schick"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9665197730064392,
+          "start_date": "2026-09-22",
+          "bookable": true,
+          "text": "Kursleitung: David Thaller"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9638211727142334,
+          "start_date": "2026-10-05",
+          "bookable": true,
+          "text": "Kursleitung: David Thaller"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9605263471603394,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber, Elisabeth FegerKurs-Nr. 262-4430"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9138247966766357,
+          "start_date": "2027-06-14",
+          "bookable": false,
+          "text": "Kursleitung: Jürgen Veigl"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9111510515213013,
+          "start_date": "2027-01-18",
+          "bookable": true,
+          "text": "Kursleitung: Jürgen Veigl"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.882604718208313,
+          "start_date": "2027-01-19",
+          "bookable": true,
+          "text": "Kursleitung: Stephan Wein"
+        }
+      ]
+    },
+    {
+      "id": "N-P34",
+      "frage": "Gibt es bei Ihnen Integrationskurse für Deutsch?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 3, 4, 5],
+      "d10": [0, 3, 4, 5],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9995074272155762,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9982268214225769,
+          "start_date": "2027-05-17",
+          "bookable": true,
+          "text": "Kursleitung: Andreas Schalk"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9981946349143982,
+          "start_date": "2027-03-01",
+          "bookable": true,
+          "text": "Kursleitung: Monika Schick"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9980286955833435,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia Weber, Elisabeth FegerKurs-Nr. 262-4430"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9978092312812805,
+          "start_date": "2027-01-06",
+          "bookable": true,
+          "text": "Kursleitung: Elisabeth Feger"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9978037476539612,
+          "start_date": "2027-02-12",
+          "bookable": true,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9974850416183472,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9970396161079407,
+          "start_date": "2027-04-02",
+          "bookable": true,
+          "text": "Kursleitung: Elisabeth Feger"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9964917302131653,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9939146637916565,
+          "start_date": "2026-12-08",
+          "bookable": true,
+          "text": "Kursleitung: Jürgen Oswald"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9936961531639099,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9931285381317139,
+          "start_date": "2027-04-27",
+          "bookable": true,
+          "text": "Kursleitung: Jürgen Oswald"
+        }
+      ]
+    },
+    {
+      "id": "N-P35",
+      "frage": "Gibt es bei Ihnen Kurse rund um Wein?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9904522895812988,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.04762633144855499,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.04491577669978142,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.027050936594605446,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Robert Brunner, Martin MendelKurs-Nr. 262-2001"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.026998545974493027,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.022086702287197113,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Herbert Grabner"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.018655328080058098,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.01826542429625988,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.017899438738822937,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Rita Cleber"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.01581614278256893,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.015741748735308647,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.014242923818528652,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "N-P36",
+      "frage": "Wir lieben Griechenland, das Essen und den Wein. Gibt es Griechisch für den Urlaub?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 1, 4, 2],
+      "d10": [0, 1, 4, 2],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9918613433837891,
+          "start_date": "2027-01-18",
+          "bookable": true,
+          "text": "Kursleitung: Stefan Kunz"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9909103512763977,
+          "start_date": "2027-01-22",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9905102849006653,
+          "start_date": "2027-05-05",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9890131950378418,
+          "start_date": "2027-06-14",
+          "bookable": true,
+          "text": "Kursleitung: Stefan Kunz"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9885460734367371,
+          "start_date": "2027-02-08",
+          "bookable": true,
+          "text": "Kursleitung: Claudia Weber"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9883074164390564,
+          "start_date": "2027-06-18",
+          "bookable": true,
+          "text": "Kursleitung: Susanne Kurmann-Niedermeier"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9788069128990173,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Claudia WeberKurs-Nr. 262-4C08"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.849226176738739,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.7755067348480225,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.5376213192939758,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jürgen Veigl, Werner Brückner, Paul UttermannKurs-Nr. 262-4605"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.044113874435424805,
+          "start_date": "2027-06-16",
+          "bookable": true,
+          "text": "Kursleitung: Lorenz Schleibinger"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.04271414130926132,
+          "start_date": "2027-01-20",
+          "bookable": true,
+          "text": "Kursleitung: Lorenz Schleibinger"
+        }
+      ]
+    },
+    {
+      "id": "N-P37",
+      "frage": "Wir haben ständig Krach mit den Nachbarn wegen der Hecke. Gibt es dazu einen Vortrag?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9973312616348267,
+          "start_date": "2027-03-06",
+          "bookable": true,
+          "text": "Kursleitung: Paul Lehmann"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9240893721580505,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.8043882846832275,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.3027091920375824,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.20696403086185455,
+          "start_date": "2027-02-05",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.14134110510349274,
+          "start_date": "2027-02-02",
+          "bookable": true,
+          "text": "Kursleitung: Hubert Weissmann"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.09260283410549164,
+          "start_date": "2027-04-21",
+          "bookable": true,
+          "text": "Kursleitung: Gisela Albrecht"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.07784535735845566,
+          "start_date": "2026-12-02",
+          "bookable": true,
+          "text": "Kursleitung: Gisela Albrecht"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.034855395555496216,
+          "start_date": "2027-02-12",
+          "bookable": false,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.034742794930934906,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Gisela AlbrechtKurs-Nr. 262-1801"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.023992197588086128,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.017721891403198242,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        }
+      ]
+    },
+    {
+      "id": "N-P38",
+      "frage": "Muss beim Erben immer ein Richter entscheiden? Gibt es dazu einen Vortrag?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 1, 2, 3],
+      "d10": [0, 1, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.8264105916023254,
+          "start_date": "2027-02-05",
+          "bookable": true,
+          "text": "Kursleitung: Helmut Misof"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.3995707035064697,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.11234494298696518,
+          "start_date": "2027-04-20",
+          "bookable": true,
+          "text": "Kursleitung: Werner Schmidt"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.05578848719596863,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.04103123024106026,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Hubert WeissmannKurs-Nr. 262-1501"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.03626922518014908,
+          "start_date": "2027-02-02",
+          "bookable": true,
+          "text": "Kursleitung: Hubert Weissmann"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.027306273579597473,
+          "start_date": "2027-03-06",
+          "bookable": true,
+          "text": "Kursleitung: Paul Lehmann"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.018784988671541214,
+          "start_date": "2027-03-31",
+          "bookable": true,
+          "text": "Kursleitung: Melanie Fichtler"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.01653359644114971,
+          "start_date": "2027-06-18",
+          "bookable": true,
+          "text": "Kursleitung: Franz Appelfelder"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.015391623601317406,
+          "start_date": "2027-01-22",
+          "bookable": true,
+          "text": "Kursleitung: Franz Appelfelder"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.01465285662561655,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.01180947944521904,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        }
+      ]
+    },
+    {
+      "id": "N-P39",
+      "frage": "Ich bin echt sauer, mein Spanischkurs ist ausgefallen. Welche Spanischkurse für Anfänger gibt es noch?",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [1, 0, 2, 3],
+      "d10": [1, 0, 2, 3],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9998074173927307,
+          "start_date": "2027-02-09",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9997796416282654,
+          "start_date": "2027-01-04",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9997735619544983,
+          "start_date": "2027-05-24",
+          "bookable": true,
+          "text": "Kursleitung: Klaus Zobel"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.9968292117118835,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Nadia TaschmannKurs-Nr. 262-4M12"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9925298094749451,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Giovanni MorettiKurs-Nr. 271-4M20"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9892545938491821,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9802477359771729,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Erich OtterhofKurs-Nr. 262-4912"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9776895046234131,
+          "start_date": "2027-01-28",
+          "bookable": true,
+          "text": "Kursleitung: Nadia Taschmann"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.9708484411239624,
+          "start_date": "2027-02-11",
+          "bookable": true,
+          "text": "Kursleitung: Sybille Rauten"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.9617021083831787,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Heinrich HuberKurs-Nr. 262-5115"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.9528789520263672,
+          "start_date": "2027-06-16",
+          "bookable": false,
+          "text": "Kursleitung: Helga Parrisius"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.9496550559997559,
+          "start_date": "2027-01-13",
+          "bookable": true,
+          "text": "Kursleitung: Helga Parrisius"
+        }
+      ]
+    },
+    {
+      "id": "N-P40",
+      "frage": "Schick mir bitte mal alle Yogakurse, die ihr habt.",
+      "heute": "2026-11-19",
+      "greift": false,
+      "p15": [0, 3, 1, 6],
+      "d10": [0, 3, 1, 6],
+      "rows": [
+        {
+          "id": 0,
+          "rerank_score": 0.9766222834587097,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Andrea Lex, Ulli DurstlerKurs-Nr. 262-3103"
+        },
+        {
+          "id": 1,
+          "rerank_score": 0.9677696824073792,
+          "start_date": "2027-03-15",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 2,
+          "rerank_score": 0.9554145932197571,
+          "start_date": "2026-11-17",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 3,
+          "rerank_score": 0.953780472278595,
+          "start_date": "2027-03-05",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 4,
+          "rerank_score": 0.9457118511199951,
+          "start_date": null,
+          "bookable": null,
+          "text": "Text ohne Kursleitung"
+        },
+        {
+          "id": 5,
+          "rerank_score": 0.9415497779846191,
+          "start_date": "2027-04-20",
+          "bookable": false,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 6,
+          "rerank_score": 0.9409424066543579,
+          "start_date": "2027-03-11",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 7,
+          "rerank_score": 0.9320017695426941,
+          "start_date": "2027-03-12",
+          "bookable": true,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 8,
+          "rerank_score": 0.8797833919525146,
+          "start_date": "2026-09-14",
+          "bookable": false,
+          "text": "Kursleitung: Andrea Lex"
+        },
+        {
+          "id": 9,
+          "rerank_score": 0.8653733134269714,
+          "start_date": "2027-03-15",
+          "bookable": true,
+          "text": "Kursleitung: Kesuke Miyagi"
+        },
+        {
+          "id": 10,
+          "rerank_score": 0.8639536499977112,
+          "start_date": null,
+          "bookable": null,
+          "text": "Kursleitung: Jutta KönigKurs-Nr. 262-3611"
+        },
+        {
+          "id": 11,
+          "rerank_score": 0.8509767651557922,
+          "start_date": "2027-02-01",
+          "bookable": true,
+          "text": "Kursleitung: Edeltraut Manninger"
+        }
+      ]
+    }
+  ]
+}
